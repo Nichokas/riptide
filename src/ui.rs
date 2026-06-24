@@ -1581,7 +1581,7 @@ fn render_lyrics(f: &mut Frame, app: &App, area: Rect) {
 // ── Help hint ─────────────────────────────────────────────────────────────────
 
 fn render_help_hint(f: &mut Frame, _app: &App, area: Rect) {
-    let hint = Span::styled("? show keybinds", Style::default().fg(DIM));
+    let hint = Span::styled("? show keybinds", Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
     f.render_widget(
         Paragraph::new(Line::from(hint)).alignment(Alignment::Right),
         area,
