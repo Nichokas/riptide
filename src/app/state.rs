@@ -419,8 +419,8 @@ impl KeybindGroup {
                 Keybind { key: "n", action: "Next track" },
                 Keybind { key: "p", action: "Previous track" },
                 Keybind { key: "z", action: "Toggle shuffle" },
-                Keybind { key: "u", action: "Volume Up"},
-                Keybind { key: "d", action: "Volume Down"},
+                Keybind { key: "+ or u", action: "Volume Up"},
+                Keybind { key: "- or d", action: "Volume Down"},
                 Keybind { key: "Esc", action: "Back/Go up" },
             ],
         }

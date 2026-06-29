@@ -158,8 +158,8 @@ You can access keybinds hint in player by pressing `?`.
 | `n`       | Next track              |
 | `p`       | Previous track          |
 | `z`       | Toggle shuffle          |
-| `u`       | Volume Up               |
-| `d`       | Volume Down             |
+| `+` / `u` | Volume Up               |
+| `-` / `d` | Volume Down             |
 | `Esc`     | Go back / close overlay |
 
 ### Navigation
