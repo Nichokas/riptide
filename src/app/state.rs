@@ -308,6 +308,7 @@ pub struct NowPlaying {
     pub lyrics_loading: bool,
     pub sample_rate: Option<u32>,
     pub codec: Option<String>,
+    pub volume: u8,
     pub shuffle: bool,
     /// UUID of the playlist this queue originated from, used to append arriving pages.
     pub source_playlist_uuid: Option<String>,
@@ -336,6 +337,7 @@ impl Default for NowPlaying {
             lyrics_loading: false,
             sample_rate: None,
             codec: None,
+            volume: 100,
             shuffle: false,
             source_playlist_uuid: None,
             source_playlist_next_offset: 0,
@@ -417,6 +419,8 @@ impl KeybindGroup {
                 Keybind { key: "n", action: "Next track" },
                 Keybind { key: "p", action: "Previous track" },
                 Keybind { key: "z", action: "Toggle shuffle" },
+                Keybind { key: "u", action: "Volume Up"},
+                Keybind { key: "d", action: "Volume Down"},
                 Keybind { key: "Esc", action: "Back/Go up" },
             ],
         }

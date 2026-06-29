@@ -20,6 +20,7 @@ pub enum PlayerCmd {
     Stop,
     RemoveNext,
     SetMediaTitle(String),
+    ChangeVolume(i8),
 }
 
 #[derive(Debug)]
@@ -32,6 +33,7 @@ pub enum PlayerEvent {
     SampleRate(u32),
     Codec(String),
     Error(String),
+    CurrVolume(u8),
 }
 
 pub struct PlayerWorker {
@@ -121,6 +123,11 @@ impl PlayerWorker {
                                 json!({"command": ["set_property", "force-media-title", t]}).to_string()
                             ));
                         }
+                        PlayerCmd::ChangeVolume(c) => {
+                            let _ = ipc_tx.send(IpcRequest::Write(
+                                json!({"command": ["add", "volume", c]}).to_string()
+                            ));
+                        }
                     }
                 }
 
@@ -139,6 +146,9 @@ impl PlayerWorker {
                     ));
                     let _ = ipc_tx.send(IpcRequest::Write(
                         json!({"command": ["get_property", "audio-codec"], "request_id": 5}).to_string()
+                    ));
+                    let _ = ipc_tx.send(IpcRequest::Write(
+                        json!({"command": ["get_property", "volume"], "request_id": 6}).to_string()
                     ));
                 }
             }
@@ -162,6 +172,7 @@ impl PlayerWorker {
                 "--really-quiet",
                 "--prefetch-playlist=yes",
                 "--load-scripts=no",
+                "--volume-max=100", // we don't want to go over 100, default is 130
             ])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -272,6 +283,11 @@ async fn read_loop(
                 5 => {
                     if let Some(codec) = value.as_str() {
                         let _ = event_tx.send(PlayerEvent::Codec(codec.to_owned()));
+                    }
+                }
+                6 => {
+                    if let Some(volume) = value.as_f64() {
+                        let _ = event_tx.send(PlayerEvent::CurrVolume(volume.to_owned() as u8));
                     }
                 }
                 _ => {}

@@ -1457,7 +1457,7 @@ fn render_now_playing(f: &mut Frame, app: &App, area: Rect) {
     let sections = Layout::vertical([
         Constraint::Length(3), // lyrics
         Constraint::Length(1), // spacer
-        Constraint::Min(0),    // track info / waveform / time
+        Constraint::Min(0),    // track info / waveform / time and volume
     ])
     .split(inner);
 
@@ -1510,8 +1510,12 @@ fn render_now_playing(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(render_squib(app, cols[1].width), cols[1]);
 
     let time_str = format!("{} / {}", app.now_playing.position_display(), app.now_playing.duration_display());
+    let volume_str = format!("Volume: {}%", app.now_playing.volume);
     f.render_widget(
-        Paragraph::new(time_str).alignment(Alignment::Right).style(Style::default().fg(DIM)),
+        Paragraph::new(vec![
+                Line::from(time_str),
+                Line::from(volume_str),
+            ]).alignment(Alignment::Right).style(Style::default().fg(DIM)),
         cols[2],
     );
 
@@ -1575,8 +1579,6 @@ fn render_lyrics(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 }
-
-// ── Keybinds bar ─────────────────────────────────────────────────────────────
 
 // ── Help hint ─────────────────────────────────────────────────────────────────
 
