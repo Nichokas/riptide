@@ -293,6 +293,7 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
         ArtistRadio(crate::api::models::Artist),
         FocusQueue,
         PlayPlaylistTracks(Vec<crate::api::models::Track>, usize, String),
+        CopyUrl(String),
     }
 
     let action: Action = if let Some(view) = app.view_stack.last_mut() {
@@ -376,6 +377,28 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
                         }
                     }
                     KeyCode::Char('r') => Action::ArtistRadio(detail.artist.clone()),
+                    KeyCode::Char('c') if detail.focus == ArtistDetailFocus::Tracks => {
+                        match detail.tracks.items.get(detail.tracks.selected) {
+                            Some(t) => Action::CopyUrl(t.share_url()),
+                            None => return,
+                        }
+                    }
+                    KeyCode::Char('c') if detail.focus == ArtistDetailFocus::Albums => {
+                        match detail.albums.items.get(detail.albums.selected) {
+                            Some(a) => Action::CopyUrl(a.share_url()),
+                            None => return,
+                        }
+                    }
+                    KeyCode::Char('c') => Action::CopyUrl(detail.artist.share_url()),
+                    KeyCode::Char('C') if detail.focus == ArtistDetailFocus::Tracks => {
+                        match detail.tracks.items.get(detail.tracks.selected) {
+                            Some(t) => Action::CopyUrl(t.album.share_url()),
+                            None => return,
+                        }
+                    }
+                    KeyCode::Char('C') if detail.focus == ArtistDetailFocus::Albums => {
+                        Action::CopyUrl(detail.artist.share_url())
+                    }
                     _ => return,
                 }
             }
@@ -408,6 +431,13 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
                             None => return,
                         }
                     }
+                    KeyCode::Char('c') => {
+                        match detail.tracks.items.get(detail.tracks.selected) {
+                            Some(t) => Action::CopyUrl(t.share_url()),
+                            None => return,
+                        }
+                    }
+                    KeyCode::Char('C') => Action::CopyUrl(detail.playlist.share_url()),
                     _ => return,
                 }
             }
@@ -439,6 +469,13 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
                             None => return,
                         }
                     }
+                    KeyCode::Char('c') => {
+                        match detail.tracks.items.get(detail.tracks.selected) {
+                            Some(t) => Action::CopyUrl(t.share_url()),
+                            None => return,
+                        }
+                    }
+                    KeyCode::Char('C') => Action::CopyUrl(detail.album.share_url()),
                     _ => return,
                 }
             }
@@ -459,6 +496,7 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
         Action::ArtistRadio(artist) => { app.start_artist_radio(&artist); return; }
         Action::FocusQueue => { app.focus_queue(); return; }
         Action::PlayPlaylistTracks(tracks, idx, uuid) => { app.play_playlist_tracks(tracks, idx, uuid); return; }
+        Action::CopyUrl(url) => { app.copy_url(url); return; }
         Action::None => {}
     }
 
@@ -572,6 +610,60 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
             }
             _ => {}
         },
+        KeyCode::Char('c') => match app.current_tab {
+            Tab::Artists => {
+                if let Some(url) = app.artists.selected_item().map(|a| a.share_url()) {
+                    app.copy_url(url);
+                }
+            }
+            Tab::Albums => {
+                if let Some(url) = app.fav_albums.selected_item().map(|a| a.share_url()) {
+                    app.copy_url(url);
+                }
+            }
+            Tab::Playlists => {
+                if let Some(url) = app.playlists.selected_item().map(|p| p.share_url()) {
+                    app.copy_url(url);
+                }
+            }
+            Tab::Favorites => {
+                if let Some(url) = app.favorites.selected_item().map(|t| t.share_url()) {
+                    app.copy_url(url);
+                }
+            }
+            Tab::Search if app.search.pane == SearchPane::Tracks => {
+                if let Some(url) = app.search.tracks.get(app.search.track_sel).map(|t| t.share_url()) {
+                    app.copy_url(url);
+                }
+            }
+            Tab::Search if app.search.pane == SearchPane::Artists => {
+                if let Some(url) = app.search.artists.get(app.search.artist_sel).map(|a| a.share_url()) {
+                    app.copy_url(url);
+                }
+            }
+            Tab::Search if app.search.pane == SearchPane::Playlists => {
+                if let Some(url) = app.search.playlists.get(app.search.playlist_sel).map(|p| p.share_url()) {
+                    app.copy_url(url);
+                }
+            }
+            _ => {}
+        },
+        // Shift+C copies the *parent* of the selected item. Only tracks have a
+        // reachable parent (their album); artist/album/playlist rows have no
+        // parent id in the API models, so they no-op.
+        KeyCode::Char('C') => match app.current_tab {
+            Tab::Favorites => {
+                if let Some(url) = app.favorites.selected_item().map(|t| t.album.share_url()) {
+                    app.copy_url(url);
+                }
+            }
+            Tab::Search if app.search.pane == SearchPane::Tracks => {
+                if let Some(url) = app.search.tracks.get(app.search.track_sel).map(|t| t.album.share_url()) {
+                    app.copy_url(url);
+                }
+            }
+            _ => {}
+        },
         KeyCode::Char('s') => match app.current_tab {
             Tab::Favorites | Tab::Artists | Tab::Albums | Tab::Playlists => {
                 if app.view_stack.is_empty() {
@@ -672,6 +764,16 @@ fn handle_queue_input(app: &mut App, key: KeyEvent) {
         KeyCode::Char('f') => {
             if let Some(track) = app.now_playing.queue.get(app.queue_cursor).cloned() {
                 app.toggle_favorite_track(&track);
+            }
+        }
+        KeyCode::Char('c') => {
+            if let Some(url) = app.now_playing.queue.get(app.queue_cursor).map(|t| t.share_url()) {
+                app.copy_url(url);
+            }
+        }
+        KeyCode::Char('C') => {
+            if let Some(url) = app.now_playing.queue.get(app.queue_cursor).map(|t| t.album.share_url()) {
+                app.copy_url(url);
             }
         }
         KeyCode::Char('z') => app.toggle_shuffle(),

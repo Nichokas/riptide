@@ -30,6 +30,13 @@ pub struct Artist {
     pub added_at: Option<String>,
 }
 
+impl Artist {
+    /// Public Tidal share URL, matching the "Copy link" output of the official apps.
+    pub fn share_url(&self) -> String {
+        format!("https://tidal.com/browse/artist/{}", self.id)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct FavoriteArtistEntry {
     pub created: Option<String>,
@@ -82,6 +89,11 @@ impl Album {
             .map(|a| a.name.as_str())
             .unwrap_or("")
     }
+
+    /// Public Tidal share URL, matching the "Copy link" output of the official apps.
+    pub fn share_url(&self) -> String {
+        format!("https://tidal.com/browse/album/{}", self.id)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,6 +145,11 @@ impl Track {
             None                    => "",
         }
     }
+
+    /// Public Tidal share URL, matching the "Copy link" output of the official apps.
+    pub fn share_url(&self) -> String {
+        format!("https://tidal.com/browse/track/{}", self.id)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,6 +171,13 @@ pub struct Playlist {
     pub created: Option<String>,
     #[serde(default, skip_deserializing)]
     pub added_at: Option<String>,
+}
+
+impl Playlist {
+    /// Public Tidal share URL, matching the "Copy link" output of the official apps.
+    pub fn share_url(&self) -> String {
+        format!("https://tidal.com/browse/playlist/{}", self.uuid)
+    }
 }
 
 #[derive(Debug, Deserialize)]
