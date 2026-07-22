@@ -103,4 +103,24 @@ impl App {
     pub(crate) fn set_status(&mut self, msg: String, level: StatusLevel) {
         self.status = Some((msg, level, self.tick));
     }
+
+    /// Copy a share URL to the system clipboard and confirm via the status toast.
+    pub(crate) fn copy_url(&mut self, url: String) {
+        copy_to_clipboard(&url);
+        self.set_status(format!("Copied link: {url}"), StatusLevel::Info);
+    }
+}
+
+/// Write text to the terminal's clipboard using an OSC 52 escape sequence.
+///
+/// Requires the terminal emulator to honour OSC 52 (kitty, WezTerm, foot, and
+/// recent Alacritty do by default; tmux needs `set -g set-clipboard on`). This
+/// keeps riptide dependency-free and works transparently over SSH, unlike a
+/// direct Wayland/X11 clipboard crate.
+fn copy_to_clipboard(text: &str) {
+    use base64::Engine as _;
+    use std::io::Write;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+    print!("\x1b]52;c;{b64}\x07");
+    let _ = std::io::stdout().flush();
 }

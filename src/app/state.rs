@@ -437,6 +437,8 @@ impl KeybindGroup {
                 Keybind { key: "f", action: "Toggle favorite/follow/save" },
                 Keybind { key: "s", action: "Sort" },
                 Keybind { key: "r", action: "Start radio" },
+                Keybind { key: "c", action: "Copy share link (song)" },
+                Keybind { key: "C", action: "Copy share link (album/playlist)" },
                 Keybind { key: "→", action: "Focus queue" },
             ],
         }
@@ -449,6 +451,8 @@ impl KeybindGroup {
                 Keybind { key: "↑", action: "Up" },
                 Keybind { key: "↓", action: "Down" },
                 Keybind { key: "d", action: "Remove track" },
+                Keybind { key: "c", action: "Copy share link (song)" },
+                Keybind { key: "C", action: "Copy share link (album)" },
                 Keybind { key: "Enter", action: "Play track" },
                 Keybind { key: "Esc", action: "Close queue" },
             ],
