@@ -25,7 +25,7 @@ A terminal UI music player for Tidal, built with Rust.
 ### Installing mpv
 
 | Platform              | Command                |
-|-----------------------|------------------------|
+| --------------------- | ---------------------- |
 | Linux (Debian/Ubuntu) | `sudo apt install mpv` |
 | Linux (Arch)          | `sudo pacman -S mpv`   |
 | Linux (Fedora)        | `sudo dnf install mpv` |
@@ -108,9 +108,9 @@ Open the URL in a browser, log in with your Tidal account, and enter the code. R
 
 The config file lives at:
 
-| Platform | Path                                                |
-|----------|-----------------------------------------------------|
-| Linux    | `~/.config/riptide/config.json`                     |
+| Platform | Path                            |
+| -------- | ------------------------------- |
+| Linux    | `~/.config/riptide/config.json` |
 
 It is created automatically on first run. Example:
 
@@ -145,35 +145,43 @@ Riptide ships with built-in fallback credentials (provided by the open-source [t
 
 ## Keybindings
 
+You can access keybinds hint in player by pressing `?`.
+
 ### Global
 
 | Key       | Action                  |
-|-----------|-------------------------|
+| --------- | ----------------------- |
 | `q` / `Q` | Quit                    |
+| `/`       | Open command palette    |
+| `Tab`     | Cycle to next tab       |
 | `Space`   | Pause / resume          |
 | `n`       | Next track              |
 | `p`       | Previous track          |
-| `/`       | Open command palette    |
+| `z`       | Toggle shuffle          |
+| `+` / `=` | Volume Up               |
+| `-`       | Volume Down             |
 | `Esc`     | Go back / close overlay |
-| `Tab`     | Cycle to next tab       |
 
 ### Navigation
 
 | Key       | Action                      |
-|-----------|-----------------------------|
+| --------- | --------------------------- |
 | `↑` / `k` | Move up                     |
 | `↓` / `j` | Move down                   |
 | `←` / `h` | Move left / previous pane   |
 | `→` / `l` | Move right / next pane      |
 | `Enter`   | Open / play selected item   |
 | `a`       | Add selected track to queue |
+| `f`       | Toggle favorite/follow/save |
+| `s`       | Sort                        |
+| `r`       | Start radio                 |
 
 ### Command palette (`/`)
 
 Type the start of a destination and press `Enter` (or `Tab` to autocomplete):
 
 | Command     | Action          |
-|-------------|-----------------|
+| ----------- | --------------- |
 | `favorites` | Go to Favorites |
 | `artists`   | Go to Artists   |
 | `playlists` | Go to Playlists |
@@ -186,7 +194,7 @@ Press `/` → `search` (or use the command palette) to open the search overlay. 
 ### Artist detail
 
 | Key                                 | Action                         |
-|-------------------------------------|--------------------------------|
+| ----------------------------------- | ------------------------------ |
 | `←` / `h` on Tracks                 | Focus bio pane                 |
 | `→` / `l` on Bio                    | Focus tracks pane              |
 | `←` / `→` between Tracks and Albums | Switch panel focus             |
@@ -200,7 +208,7 @@ Press `/` → `search` (or use the command palette) to open the search overlay. 
 Press `→` / `l` from any main tab to focus the queue.
 
 | Key                | Action                    |
-|--------------------|---------------------------|
+| ------------------ | ------------------------- |
 | `↑` / `k`          | Move cursor up            |
 | `↓` / `j`          | Move cursor down          |
 | `Enter`            | Play from cursor position |

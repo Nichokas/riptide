@@ -324,6 +324,7 @@ impl App {
             PlayerEvent::Error(e)     => {
                 self.set_status(format!("Player: {e}"), StatusLevel::Error);
             }
+            PlayerEvent::CurrVolume(v) => { self.now_playing.volume = v}
         }
     }
 }

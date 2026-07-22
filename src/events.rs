@@ -140,6 +140,8 @@ fn handle_key(app: &mut App, key: KeyEvent) {
             if leaving_artist(app) { kitty_delete_artist_art(); }
             app.go_back();
         }
+        KeyCode::Char('+') | KeyCode::Char('=') => { let _ = app.player_tx.send(PlayerCmd::ChangeVolume(5)); },
+        KeyCode::Char('-') => { let _ = app.player_tx.send(PlayerCmd::ChangeVolume(-5)); },
         _ => handle_navigation(app, key),
     }
 }
