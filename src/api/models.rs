@@ -116,6 +116,8 @@ pub struct Track {
     pub album: Album,
     #[serde(rename = "audioQuality")]
     pub audio_quality: Option<String>,
+    #[serde(rename = "mediaMetadata", default)]
+    pub media_metadata: Option<MediaMetadata>,
     #[serde(default, skip_deserializing)]
     pub added_at: Option<String>,
 }
@@ -132,6 +134,21 @@ impl Track {
             .or_else(|| self.artists.first())
             .map(|a| a.name.as_str())
             .unwrap_or("")
+    }
+
+    pub fn quality_badge(&self) -> Option<&'static str> {
+        let tags = self.media_metadata.as_ref().map(|m| m.tags.as_slice()).unwrap_or(&[]);
+        if tags.iter().any(|t| t == "HIRES_LOSSLESS") {
+            return Some("MAX");
+        }
+        if tags.iter().any(|t| t == "LOSSLESS") {
+            return Some("HI-FI");
+        }
+        match self.audio_quality.as_deref() {
+            Some("HI_RES") => Some("MQA"),
+            Some("HIGH")   => Some("320"),
+            _              => None,
+        }
     }
 
     pub fn quality_display(&self) -> &str {

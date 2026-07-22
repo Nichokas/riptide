@@ -659,26 +659,20 @@ fn render_artist_detail(
 
     render_artist_bio(f, app, detail, left_rows[1]);
 
+    let panels = Layout::vertical([
+        Constraint::Length(2),   // Carousel tabs + border
+        Constraint::Min(0),      // Content area
+    ])
+    .split(cols[1]);
+
+    render_carousel_tabs(f, app, detail, panels[0]);
+
     match detail.focus {
-        ArtistDetailFocus::Tracks => {
-            render_artist_tracks(f, app, detail, cols[1]);
-        }
-        _ => {
-            let panels = Layout::vertical([
-                Constraint::Length(9),   // Tracks (fixed small)
-                Constraint::Min(0),      // Focused album section (carousel)
-            ])
-            .split(cols[1]);
-
-            render_artist_tracks(f, app, detail, panels[0]);
-
-            match detail.focus {
-                ArtistDetailFocus::Albums => render_artist_albums(f, app, detail, panels[1]),
-                ArtistDetailFocus::EPs => render_artist_eps(f, app, detail, panels[1]),
-                ArtistDetailFocus::Singles => render_artist_singles(f, app, detail, panels[1]),
-                _ => {}
-            }
-        }
+        ArtistDetailFocus::Tracks => render_artist_tracks_full(f, app, detail, panels[1]),
+        ArtistDetailFocus::Albums => render_artist_albums(f, app, detail, panels[1]),
+        ArtistDetailFocus::EPs => render_artist_eps(f, app, detail, panels[1]),
+        ArtistDetailFocus::Singles => render_artist_singles(f, app, detail, panels[1]),
+        ArtistDetailFocus::Bio => {}
     }
 }
 
@@ -819,33 +813,70 @@ fn render_artist_bio(f: &mut Frame, app: &App, detail: &crate::app::ArtistDetail
     }
 }
 
-fn render_artist_tracks(
+fn render_carousel_tabs(
+    f: &mut Frame,
+    _app: &App,
+    detail: &crate::app::ArtistDetail,
+    area: Rect,
+) {
+    if area.height < 2 {
+        return;
+    }
+
+    // First line: tabs
+    let tabs = vec![
+        ("Top Tracks", ArtistDetailFocus::Tracks),
+        ("Albums", ArtistDetailFocus::Albums),
+        ("EPs", ArtistDetailFocus::EPs),
+        ("Singles", ArtistDetailFocus::Singles),
+    ];
+
+    let mut line_spans = Vec::new();
+    for (i, (name, focus)) in tabs.iter().enumerate() {
+        if i > 0 {
+            line_spans.push(Span::raw(" – "));
+        }
+        let selected = detail.focus == *focus;
+        let style = if selected {
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(DIM)
+        };
+        line_spans.push(Span::styled(name.to_string(), style));
+    }
+
+    let tabs_area = Rect::new(area.x, area.y, area.width, 1);
+    let line = Line::from(line_spans);
+    f.render_widget(Paragraph::new(line), tabs_area);
+
+    // Second line: border
+    let border_area = Rect::new(area.x, area.y + 1, area.width, 1);
+    let border_line = "─".repeat(area.width as usize);
+    f.render_widget(
+        Paragraph::new(border_line).style(Style::default().fg(DIM)),
+        border_area,
+    );
+}
+
+fn render_artist_tracks_full(
     f: &mut Frame,
     app: &App,
     detail: &crate::app::ArtistDetail,
     area: Rect,
 ) {
-    let focused = detail.focus == ArtistDetailFocus::Tracks;
     let spinner = spinner_char(app.tick);
     let loading = detail.tracks.loading;
+    let focused = true;
 
-    let border_style = if focused {
-        Style::default().fg(ACCENT)
-    } else {
-        Style::default().fg(DIM)
-    };
+    if loading {
+        let msg = format!("Loading {spinner}");
+        f.render_widget(
+            Paragraph::new(msg).style(Style::default().fg(DIM)),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+    }
 
-    let block = Block::default()
-        .title(if loading {
-            format!(" Top Tracks {spinner} ")
-        } else {
-            " Top Tracks ".to_string()
-        })
-        .borders(Borders::ALL)
-        .border_style(border_style);
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let inner = area;
 
     let items: Vec<ListItem> = detail.tracks.items
         .iter()
@@ -860,8 +891,17 @@ fn render_artist_tracks(
             let prefix = if selected { "▶ " } else { "  " };
             let playing = app.now_playing.track.as_ref().map(|t| t.id == track.id).unwrap_or(false);
             let indicator = if playing { "♪ " } else { "" };
-            ListItem::new(format!("{prefix}{indicator}{i:>2}. {} ({})", track.title, track.duration_display()))
-                .style(style)
+
+            let quality_span = track.quality_badge()
+                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+                .unwrap_or_else(|| Span::raw(""));
+
+            let title_span = Span::styled(
+                format!("{prefix}{indicator}{i:>2}. {} ({})", track.title, track.duration_display()),
+                style
+            );
+
+            ListItem::new(Line::from(vec![quality_span, title_span]))
         })
         .collect();
 
@@ -875,27 +915,19 @@ fn render_artist_albums(
     detail: &crate::app::ArtistDetail,
     area: Rect,
 ) {
-    let focused = detail.focus == ArtistDetailFocus::Albums;
     let spinner = spinner_char(app.tick);
     let loading = detail.albums.loading;
+    let focused = true;
 
-    let border_style = if focused {
-        Style::default().fg(ACCENT)
-    } else {
-        Style::default().fg(DIM)
-    };
+    if loading {
+        let msg = format!("Loading {spinner}");
+        f.render_widget(
+            Paragraph::new(msg).style(Style::default().fg(DIM)),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+    }
 
-    let block = Block::default()
-        .title(if loading {
-            format!(" Albums {spinner} ")
-        } else {
-            " Albums ".to_string()
-        })
-        .borders(Borders::ALL)
-        .border_style(border_style);
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let inner = area;
 
     let items: Vec<ListItem> = detail.albums.items
         .iter()
@@ -934,27 +966,19 @@ fn render_artist_eps(
     detail: &crate::app::ArtistDetail,
     area: Rect,
 ) {
-    let focused = detail.focus == ArtistDetailFocus::EPs;
     let spinner = spinner_char(app.tick);
     let loading = detail.eps.loading;
+    let focused = true;
 
-    let border_style = if focused {
-        Style::default().fg(ACCENT)
-    } else {
-        Style::default().fg(DIM)
-    };
+    if loading {
+        let msg = format!("Loading {spinner}");
+        f.render_widget(
+            Paragraph::new(msg).style(Style::default().fg(DIM)),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+    }
 
-    let block = Block::default()
-        .title(if loading {
-            format!(" EPs {spinner} ")
-        } else {
-            " EPs ".to_string()
-        })
-        .borders(Borders::ALL)
-        .border_style(border_style);
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let inner = area;
 
     let items: Vec<ListItem> = detail.eps.items
         .iter()
@@ -993,27 +1017,19 @@ fn render_artist_singles(
     detail: &crate::app::ArtistDetail,
     area: Rect,
 ) {
-    let focused = detail.focus == ArtistDetailFocus::Singles;
     let spinner = spinner_char(app.tick);
     let loading = detail.singles.loading;
+    let focused = true;
 
-    let border_style = if focused {
-        Style::default().fg(ACCENT)
-    } else {
-        Style::default().fg(DIM)
-    };
+    if loading {
+        let msg = format!("Loading {spinner}");
+        f.render_widget(
+            Paragraph::new(msg).style(Style::default().fg(DIM)),
+            Rect::new(area.x, area.y, area.width, 1),
+        );
+    }
 
-    let block = Block::default()
-        .title(if loading {
-            format!(" Singles {spinner} ")
-        } else {
-            " Singles ".to_string()
-        })
-        .borders(Borders::ALL)
-        .border_style(border_style);
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let inner = area;
 
     let items: Vec<ListItem> = detail.singles.items
         .iter()
@@ -1133,13 +1149,22 @@ fn render_track_list(
             };
             let prefix = if is_selected { "▶ " } else { "  " };
             let playing = if is_playing { "♪ " } else { "" };
-            ListItem::new(format!(
-                "{prefix}{playing}{i:>3}. {} — {} ({})",
-                track.title,
-                track.artist_name(),
-                track.duration_display()
-            ))
-            .style(style)
+
+            let quality_span = track.quality_badge()
+                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+                .unwrap_or_else(|| Span::raw(""));
+
+            let title_span = Span::styled(
+                format!(
+                    "{prefix}{playing}{i:>3}. {} — {} ({})",
+                    track.title,
+                    track.artist_name(),
+                    track.duration_display()
+                ),
+                style
+            );
+
+            ListItem::new(Line::from(vec![quality_span, title_span]))
         })
         .collect();
 
@@ -1489,11 +1514,20 @@ fn render_search_pane_tracks(f: &mut Frame, app: &App, area: Rect) {
             };
             let prefix = if selected { "▶ " } else { "  " };
             let playing = if is_playing { "♪ " } else { "" };
-            ListItem::new(format!(
-                "{prefix}{playing}{} — {} ({})",
-                t.title, t.artist_name(), t.duration_display()
-            ))
-            .style(style)
+
+            let quality_span = t.quality_badge()
+                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+                .unwrap_or_else(|| Span::raw(""));
+
+            let title_span = Span::styled(
+                format!(
+                    "{prefix}{playing}{} — {} ({})",
+                    t.title, t.artist_name(), t.duration_display()
+                ),
+                style
+            );
+
+            ListItem::new(Line::from(vec![quality_span, title_span]))
         })
         .collect();
 
