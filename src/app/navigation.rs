@@ -66,6 +66,8 @@ impl App {
             artist,
             tracks: StatefulList::default(),
             albums: StatefulList::default(),
+            eps: StatefulList::default(),
+            singles: StatefulList::default(),
             focus: ArtistDetailFocus::Tracks,
             art_bytes: None,
             art_loading: has_picture,
@@ -78,6 +80,8 @@ impl App {
         self.view_stack.push(View::ArtistDetail(detail));
         let _ = self.api_tx.send(ApiRequest::LoadArtistTopTracks { artist_id: id });
         let _ = self.api_tx.send(ApiRequest::LoadArtistAlbums   { artist_id: id });
+        let _ = self.api_tx.send(ApiRequest::LoadArtistEPs      { artist_id: id });
+        let _ = self.api_tx.send(ApiRequest::LoadArtistSingles  { artist_id: id });
         let _ = self.api_tx.send(ApiRequest::LoadArtistBio      { artist_id: id });
         if let Some(picture_id) = picture_id {
             let _ = self.api_tx.send(ApiRequest::FetchArtistArt { artist_id: id, picture_id });
@@ -105,7 +109,12 @@ impl App {
 
     pub fn open_selected_album(&mut self) {
         let album = if let Some(View::ArtistDetail(detail)) = self.view_stack.last() {
-            detail.albums.selected_item().cloned()
+            match detail.focus {
+                ArtistDetailFocus::Albums => detail.albums.selected_item().cloned(),
+                ArtistDetailFocus::EPs => detail.eps.selected_item().cloned(),
+                ArtistDetailFocus::Singles => detail.singles.selected_item().cloned(),
+                _ => None,
+            }
         } else {
             None
         };

@@ -88,6 +88,8 @@ impl<T> StatefulList<T> {
 pub enum ArtistDetailFocus {
     Tracks,
     Albums,
+    EPs,
+    Singles,
     Bio,
 }
 
@@ -95,6 +97,8 @@ pub struct ArtistDetail {
     pub artist: Artist,
     pub tracks: StatefulList<Track>,
     pub albums: StatefulList<Album>,
+    pub eps: StatefulList<Album>,
+    pub singles: StatefulList<Album>,
     pub focus: ArtistDetailFocus,
     pub art_bytes: Option<Vec<u8>>,
     pub art_loading: bool,

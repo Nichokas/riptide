@@ -52,7 +52,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     render_content(f, app, cols[1]);
     render_queue(f, app, cols[2]);
     render_now_playing(f, app, rows[1]);
-    render_help_hint(f, app, rows[2]);
+    render_footer(f, app, rows[2]);
 
     if app.command.active {
         render_command_overlay(f, app, area);
@@ -659,11 +659,27 @@ fn render_artist_detail(
 
     render_artist_bio(f, app, detail, left_rows[1]);
 
-    let panels = Layout::horizontal([Constraint::Percentage(55), Constraint::Percentage(45)])
-        .split(cols[1]);
+    match detail.focus {
+        ArtistDetailFocus::Tracks => {
+            render_artist_tracks(f, app, detail, cols[1]);
+        }
+        _ => {
+            let panels = Layout::vertical([
+                Constraint::Length(9),   // Tracks (fixed small)
+                Constraint::Min(0),      // Focused album section (carousel)
+            ])
+            .split(cols[1]);
 
-    render_artist_tracks(f, app, detail, panels[0]);
-    render_artist_albums(f, app, detail, panels[1]);
+            render_artist_tracks(f, app, detail, panels[0]);
+
+            match detail.focus {
+                ArtistDetailFocus::Albums => render_artist_albums(f, app, detail, panels[1]),
+                ArtistDetailFocus::EPs => render_artist_eps(f, app, detail, panels[1]),
+                ArtistDetailFocus::Singles => render_artist_singles(f, app, detail, panels[1]),
+                _ => {}
+            }
+        }
+    }
 }
 
 fn render_artist_art(f: &mut Frame, app: &App, detail: &crate::app::ArtistDetail, area: Rect) {
@@ -894,7 +910,135 @@ fn render_artist_albums(
             let prefix = if selected { "▶ " } else { "  " };
             let year = album.release_date.as_deref().and_then(|d| d.get(..4)).unwrap_or("----");
             let n = album.number_of_tracks.unwrap_or(0);
-            ListItem::new(format!("{prefix}{} ({year}, {n} tracks)", album.title)).style(style)
+
+            let quality_span = album.quality_badge()
+                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+                .unwrap_or_else(|| Span::raw(""));
+
+            let title_span = Span::styled(
+                format!("{}{} ({}, {} tracks)", prefix, album.title, year, n),
+                style
+            );
+
+            ListItem::new(Line::from(vec![quality_span, title_span]))
+        })
+        .collect();
+
+    let list = List::new(items);
+    f.render_widget(list, inner);
+}
+
+fn render_artist_eps(
+    f: &mut Frame,
+    app: &App,
+    detail: &crate::app::ArtistDetail,
+    area: Rect,
+) {
+    let focused = detail.focus == ArtistDetailFocus::EPs;
+    let spinner = spinner_char(app.tick);
+    let loading = detail.eps.loading;
+
+    let border_style = if focused {
+        Style::default().fg(ACCENT)
+    } else {
+        Style::default().fg(DIM)
+    };
+
+    let block = Block::default()
+        .title(if loading {
+            format!(" EPs {spinner} ")
+        } else {
+            " EPs ".to_string()
+        })
+        .borders(Borders::ALL)
+        .border_style(border_style);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let items: Vec<ListItem> = detail.eps.items
+        .iter()
+        .enumerate()
+        .map(|(i, album)| {
+            let selected = i == detail.eps.selected && focused;
+            let style = if selected {
+                Style::default().bg(HIGHLIGHT_BG).fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix = if selected { "▶ " } else { "  " };
+            let year = album.release_date.as_deref().and_then(|d| d.get(..4)).unwrap_or("----");
+            let n = album.number_of_tracks.unwrap_or(0);
+
+            let quality_span = album.quality_badge()
+                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+                .unwrap_or_else(|| Span::raw(""));
+
+            let title_span = Span::styled(
+                format!("{}{} ({}, {} tracks)", prefix, album.title, year, n),
+                style
+            );
+
+            ListItem::new(Line::from(vec![quality_span, title_span]))
+        })
+        .collect();
+
+    let list = List::new(items);
+    f.render_widget(list, inner);
+}
+
+fn render_artist_singles(
+    f: &mut Frame,
+    app: &App,
+    detail: &crate::app::ArtistDetail,
+    area: Rect,
+) {
+    let focused = detail.focus == ArtistDetailFocus::Singles;
+    let spinner = spinner_char(app.tick);
+    let loading = detail.singles.loading;
+
+    let border_style = if focused {
+        Style::default().fg(ACCENT)
+    } else {
+        Style::default().fg(DIM)
+    };
+
+    let block = Block::default()
+        .title(if loading {
+            format!(" Singles {spinner} ")
+        } else {
+            " Singles ".to_string()
+        })
+        .borders(Borders::ALL)
+        .border_style(border_style);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let items: Vec<ListItem> = detail.singles.items
+        .iter()
+        .enumerate()
+        .map(|(i, album)| {
+            let selected = i == detail.singles.selected && focused;
+            let style = if selected {
+                Style::default().bg(HIGHLIGHT_BG).fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix = if selected { "▶ " } else { "  " };
+            let year = album.release_date.as_deref().and_then(|d| d.get(..4)).unwrap_or("----");
+            let n = album.number_of_tracks.unwrap_or(0);
+
+            let quality_span = album.quality_badge()
+                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+                .unwrap_or_else(|| Span::raw(""));
+
+            let title_span = Span::styled(
+                format!("{}{} ({}, {} tracks)", prefix, album.title, year, n),
+                style
+            );
+
+            ListItem::new(Line::from(vec![quality_span, title_span]))
         })
         .collect();
 
@@ -1582,12 +1726,50 @@ fn render_lyrics(f: &mut Frame, app: &App, area: Rect) {
 
 // ── Help hint ─────────────────────────────────────────────────────────────────
 
-fn render_help_hint(f: &mut Frame, _app: &App, area: Rect) {
-    let hint = Span::styled("? show keybinds", Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+fn render_footer(f: &mut Frame, app: &App, area: Rect) {
+    let cols = Layout::horizontal([Constraint::Min(0), Constraint::Length(20)])
+        .split(area);
+
+    let context_hint = get_context_hint(app);
+    let context_span = Span::styled(context_hint, Style::default().fg(DIM));
     f.render_widget(
-        Paragraph::new(Line::from(hint)).alignment(Alignment::Right),
-        area,
+        Paragraph::new(Line::from(context_span)).alignment(Alignment::Left),
+        cols[0],
     );
+
+    let help_span = Span::styled("? show keybinds", Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+    f.render_widget(
+        Paragraph::new(Line::from(help_span)).alignment(Alignment::Right),
+        cols[1],
+    );
+}
+
+fn get_context_hint(app: &App) -> String {
+    if let Some(View::ArtistDetail(detail)) = app.view_stack.last() {
+        match detail.focus {
+            ArtistDetailFocus::Tracks => {
+                "↑↓ Select | ← → Section | a Add | f Fav | r Radio".to_string()
+            }
+            ArtistDetailFocus::Albums | ArtistDetailFocus::EPs | ArtistDetailFocus::Singles => {
+                "↑↓ Select | ← → Section | f Fav | c Copy".to_string()
+            }
+            ArtistDetailFocus::Bio => {
+                "↑↓ Scroll | ← → Section".to_string()
+            }
+        }
+    } else if let Some(View::AlbumDetail(_)) = app.view_stack.last() {
+        "↑↓ Select | a Add | f Fav | r Radio | c Copy".to_string()
+    } else if let Some(View::PlaylistDetail(_)) = app.view_stack.last() {
+        "↑↓ Select | a Add | f Fav | r Radio | c Copy".to_string()
+    } else {
+        match app.current_tab {
+            Tab::Favorites => "↑↓ Select | a Add | f Fav | r Radio | c Copy".to_string(),
+            Tab::Artists => "↑↓ Select | f Follow | Enter Open".to_string(),
+            Tab::Albums => "↑↓ Select | f Fav | Enter Open".to_string(),
+            Tab::Playlists => "↑↓ Select | Enter Open".to_string(),
+            Tab::Search => "↑↓ Select | Tab Switch pane".to_string(),
+        }
+    }
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────

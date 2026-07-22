@@ -271,6 +271,28 @@ impl ApiClient {
         .await
     }
 
+    pub async fn get_artist_eps(&self, artist_id: u64, limit: u32) -> Result<Page<Album>> {
+        self.get(
+            &format!("/artists/{artist_id}/albums"),
+            &[
+                ("limit", limit.to_string()),
+                ("filter", "EPSANDSINGLES".to_string()),
+            ],
+        )
+        .await
+    }
+
+    pub async fn get_artist_singles(&self, artist_id: u64, limit: u32) -> Result<Page<Album>> {
+        self.get(
+            &format!("/artists/{artist_id}/albums"),
+            &[
+                ("limit", limit.to_string()),
+                ("filter", "EPSANDSINGLES".to_string()),
+            ],
+        )
+        .await
+    }
+
     pub async fn get_artist_bio(&self, artist_id: u64) -> Result<ArtistBioResponse> {
         self.get(&format!("/artists/{artist_id}/bio"), &[]).await
     }

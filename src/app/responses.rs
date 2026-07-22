@@ -99,6 +99,40 @@ impl App {
                 }
             }
 
+            ApiResponse::ArtistEPs { artist_id, albums } => {
+                if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
+                    if detail.artist.id == artist_id {
+                        let eps: Vec<Album> = albums.into_iter()
+                            .filter(|a| a.number_of_tracks.unwrap_or(0) >= 3)
+                            .collect();
+                        let n = eps.len() as u32;
+                        let total = detail.eps.total.max(n);
+                        detail.eps.append(eps, total);
+                        detail.eps.items.sort_by(|a, b| {
+                            b.release_date.as_deref().cmp(&a.release_date.as_deref())
+                        });
+                        detail.eps.exhausted = true;
+                    }
+                }
+            }
+
+            ApiResponse::ArtistSingles { artist_id, albums } => {
+                if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
+                    if detail.artist.id == artist_id {
+                        let singles: Vec<Album> = albums.into_iter()
+                            .filter(|a| a.number_of_tracks.unwrap_or(0) <= 2)
+                            .collect();
+                        let n = singles.len() as u32;
+                        let total = detail.singles.total.max(n);
+                        detail.singles.append(singles, total);
+                        detail.singles.items.sort_by(|a, b| {
+                            b.release_date.as_deref().cmp(&a.release_date.as_deref())
+                        });
+                        detail.singles.exhausted = true;
+                    }
+                }
+            }
+
             ApiResponse::AlbumLoaded { album } => {
                 if let Some(View::AlbumDetail(detail)) = self.view_stack.last_mut() {
                     if detail.album.id == album.id {

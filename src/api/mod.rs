@@ -21,6 +21,8 @@ pub enum ApiRequest {
     LoadFavAlbums { offset: u32 },
     LoadArtistTopTracks { artist_id: u64 },
     LoadArtistAlbums { artist_id: u64 },
+    LoadArtistEPs { artist_id: u64 },
+    LoadArtistSingles { artist_id: u64 },
     LoadArtistBio { artist_id: u64 },
     LoadAlbum { album_id: u64 },
     LoadAlbumTracks { album_id: u64 },
@@ -49,6 +51,8 @@ pub enum ApiResponse {
     Favorites(Vec<Track>, u32),
     ArtistTopTracks { artist_id: u64, tracks: Vec<Track> },
     ArtistAlbums { artist_id: u64, albums: Vec<Album> },
+    ArtistEPs { artist_id: u64, albums: Vec<Album> },
+    ArtistSingles { artist_id: u64, albums: Vec<Album> },
     AlbumLoaded { album: Album },
     AlbumTracks { album_id: u64, tracks: Vec<Track> },
     AlbumArt { album_id: u64, image_data: Vec<u8> },
@@ -196,6 +200,20 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             match client.get_artist_albums(artist_id, 30).await {
                 Ok(page) => ApiResponse::ArtistAlbums { artist_id, albums: page.items },
                 Err(e) => ApiResponse::Error(format!("albums: {e}")),
+            }
+        }
+
+        ApiRequest::LoadArtistEPs { artist_id } => {
+            match client.get_artist_eps(artist_id, 30).await {
+                Ok(page) => ApiResponse::ArtistEPs { artist_id, albums: page.items },
+                Err(e) => ApiResponse::Error(format!("EPs: {e}")),
+            }
+        }
+
+        ApiRequest::LoadArtistSingles { artist_id } => {
+            match client.get_artist_singles(artist_id, 30).await {
+                Ok(page) => ApiResponse::ArtistSingles { artist_id, albums: page.items },
+                Err(e) => ApiResponse::Error(format!("singles: {e}")),
             }
         }
 
