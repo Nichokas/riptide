@@ -658,22 +658,8 @@ fn render_artist_detail(
     render_artist_art(f, app, detail, left_rows[0]);
 
     render_artist_bio(f, app, detail, left_rows[1]);
-
-    let panels = Layout::vertical([
-        Constraint::Length(2),   // Carousel tabs + border
-        Constraint::Min(0),      // Content area
-    ])
-    .split(cols[1]);
-
-    render_carousel_tabs(f, app, detail, panels[0]);
-
-    match detail.focus {
-        ArtistDetailFocus::Tracks => render_artist_tracks_full(f, app, detail, panels[1]),
-        ArtistDetailFocus::Albums => render_artist_albums(f, app, detail, panels[1]),
-        ArtistDetailFocus::EPs => render_artist_eps(f, app, detail, panels[1]),
-        ArtistDetailFocus::Singles => render_artist_singles(f, app, detail, panels[1]),
-        ArtistDetailFocus::Bio => {}
-    }
+    //use Render carousel tabs to render 
+    render_carousel_tabs(f, app, detail, cols[1]);
 }
 
 fn render_artist_art(f: &mut Frame, app: &App, detail: &crate::app::ArtistDetail, area: Rect) {
@@ -815,7 +801,7 @@ fn render_artist_bio(f: &mut Frame, app: &App, detail: &crate::app::ArtistDetail
 
 fn render_carousel_tabs(
     f: &mut Frame,
-    _app: &App,
+    app: &App,
     detail: &crate::app::ArtistDetail,
     area: Rect,
 ) {
@@ -823,39 +809,47 @@ fn render_carousel_tabs(
         return;
     }
 
-    // First line: tabs
     let tabs = vec![
-        ("Top Tracks", ArtistDetailFocus::Tracks),
+        (" Top Tracks", ArtistDetailFocus::Tracks),
         ("Albums", ArtistDetailFocus::Albums),
         ("EPs", ArtistDetailFocus::EPs),
-        ("Singles", ArtistDetailFocus::Singles),
+        ("Singles ", ArtistDetailFocus::Singles),
     ];
 
+        // Spans + Line seperators. can be changed or removed completely. 
     let mut line_spans = Vec::new();
     for (i, (name, focus)) in tabs.iter().enumerate() {
         if i > 0 {
-            line_spans.push(Span::raw(" – "));
+            line_spans.push(Span::styled(" - ", Style::default().fg(DIM)));
         }
-        let selected = detail.focus == *focus;
+        
+        let selected = detail.focus == *focus;  
         let style = if selected {
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(DIM)
         };
+        
         line_spans.push(Span::styled(name.to_string(), style));
     }
+    //block styling (made it dim cuz that fit better with the surrounding UI)
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(DIM))
+        .title(Line::from(line_spans));
 
-    let tabs_area = Rect::new(area.x, area.y, area.width, 1);
-    let line = Line::from(line_spans);
-    f.render_widget(Paragraph::new(line), tabs_area);
+    let inner = block.inner(area);
+    f.render_widget(block, area);
 
-    // Second line: border
-    let border_area = Rect::new(area.x, area.y + 1, area.width, 1);
-    let border_line = "─".repeat(area.width as usize);
-    f.render_widget(
-        Paragraph::new(border_line).style(Style::default().fg(DIM)),
-        border_area,
-    );
+    if inner.height > 0 {
+        match detail.focus {
+            ArtistDetailFocus::Tracks => render_artist_tracks_full(f, app, detail, inner),
+            ArtistDetailFocus::Albums => render_artist_albums(f, app, detail, inner),
+            ArtistDetailFocus::EPs => render_artist_eps(f, app, detail, inner),
+            ArtistDetailFocus::Singles => render_artist_singles(f, app, detail, inner),
+            ArtistDetailFocus::Bio => {}
+        }
+    }
 }
 
 fn render_artist_tracks_full(
@@ -1061,7 +1055,6 @@ fn render_artist_singles(
     let list = List::new(items);
     f.render_widget(list, inner);
 }
-
 // ── Playlists ─────────────────────────────────────────────────────────────────
 
 fn render_playlist_list(f: &mut Frame, app: &App, area: Rect) {
