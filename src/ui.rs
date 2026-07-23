@@ -809,22 +809,14 @@ fn render_carousel_tabs(
         return;
     }
 
-    //focused tabs and stuff
-    let focused = matches!(
-        detail.focus,
-        ArtistDetailFocus::Tracks
-            | ArtistDetailFocus::Albums
-            | ArtistDetailFocus::EPs
-            | ArtistDetailFocus::Singles
-    );
     let tabs = vec![
-        ("Top Tracks", ArtistDetailFocus::Tracks),
+        (" Top Tracks", ArtistDetailFocus::Tracks),
         ("Albums", ArtistDetailFocus::Albums),
         ("EPs", ArtistDetailFocus::EPs),
-        ("Singles", ArtistDetailFocus::Singles),
+        ("Singles ", ArtistDetailFocus::Singles),
     ];
 
-    // Spans + Line seperators. can be changed or removed completely. 
+        // Spans + Line seperators. can be changed or removed completely. 
     let mut line_spans = Vec::new();
     for (i, (name, focus)) in tabs.iter().enumerate() {
         if i > 0 {
