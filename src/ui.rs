@@ -62,6 +62,10 @@ pub fn draw(f: &mut Frame, app: &App) {
         render_sort_overlay(f, app, area);
     }
 
+    if app.artist_selection.active {
+        render_artist_selection_modal(f, app, area);
+    }
+
     if app.help_active {
         render_help_modal(f, app, area);
     }
@@ -259,7 +263,7 @@ fn render_queue(f: &mut Frame, app: &App, area: Rect) {
         };
 
         f.render_widget(
-            Paragraph::new(format!("{} {}", indicator, track.artist_name())).style(artist_style),
+            Paragraph::new(format!("{} {}", indicator, track.all_artist_names())).style(artist_style),
             Rect::new(inner.x, y, inner.width, 1),
         );
         f.render_widget(
@@ -390,6 +394,50 @@ fn render_sort_overlay(f: &mut Frame, app: &App, area: Rect) {
         let prefix = if selected { " ► " } else { "   " };
         f.render_widget(
             Paragraph::new(format!("{prefix}{label}")).style(style),
+            Rect::new(inner.x, row_y, inner.width, 1),
+        );
+    }
+}
+
+// ── Artist selection modal ────────────────────────────────────────────────────
+
+fn render_artist_selection_modal(f: &mut Frame, app: &App, area: Rect) {
+    let box_w = 40u16.min(area.width.saturating_sub(4));
+    let box_h = (4 + app.artist_selection.artist_names.len() as u16).min(area.height.saturating_sub(6));
+
+    let x = area.x + area.width.saturating_sub(box_w) / 2;
+    let y = area.y + area.height.saturating_sub(box_h) / 2;
+    let overlay = Rect::new(
+        x.min(area.right().saturating_sub(box_w)),
+        y.min(area.bottom().saturating_sub(box_h)),
+        box_w.min(area.width),
+        box_h.min(area.height),
+    );
+
+    f.render_widget(Clear, overlay);
+    let block = Block::default()
+        .title(Span::styled(" select artist ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let inner = block.inner(overlay);
+    f.render_widget(block, overlay);
+
+    let start_y = inner.y;
+    for (i, name) in app.artist_selection.artist_names.iter().enumerate() {
+        let row_y = start_y + i as u16;
+        if row_y >= inner.y + inner.height {
+            break;
+        }
+        let selected = i == app.artist_selection.selected;
+        let style = if selected {
+            Style::default().bg(SELECT_BG).fg(Color::White).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        let prefix = if selected { " ► " } else { "   " };
+        let line = format!("{prefix}{}", name);
+        f.render_widget(
+            Paragraph::new(line).style(style),
             Rect::new(inner.x, row_y, inner.width, 1),
         );
     }
@@ -1143,7 +1191,7 @@ fn render_track_list(
                 format!(
                     "{prefix}{playing}{i:>3}. {} — {} ({})",
                     track.title,
-                    track.artist_name(),
+                    track.all_artist_names(),
                     track.duration_display()
                 ),
                 style
@@ -1506,7 +1554,7 @@ fn render_search_pane_tracks(f: &mut Frame, app: &App, area: Rect) {
             let title_span = Span::styled(
                 format!(
                     "{prefix}{playing}{} — {} ({})",
-                    t.title, t.artist_name(), t.duration_display()
+                    t.title, t.all_artist_names(), t.duration_display()
                 ),
                 style
             );
@@ -1655,7 +1703,7 @@ fn render_now_playing(f: &mut Frame, app: &App, area: Rect) {
             };
             let mut lines = vec![
                 Line::from(Span::styled(t.title.as_str(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD))),
-                Line::from(Span::styled(t.artist_name(), Style::default().fg(Color::White))),
+                Line::from(Span::styled(t.all_artist_names(), Style::default().fg(Color::White))),
                 Line::from(Span::styled(t.album.title.as_str(), Style::default().fg(DIM))),
             ];
             if let Some(label) = quality_label {

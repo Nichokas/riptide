@@ -140,4 +140,42 @@ impl App {
         let Some(playlist) = self.playlists.selected_item().cloned() else { return };
         self.open_playlist(playlist);
     }
+
+    pub fn go_to_artist_from_track(&mut self, track: &crate::api::models::Track) {
+        let artist_names: Vec<String> = if !track.artists.is_empty() {
+            track.artists.iter().map(|a| a.name.clone()).collect()
+        } else if let Some(ref artist) = track.artist {
+            vec![artist.name.clone()]
+        } else {
+            Vec::new()
+        };
+
+        if artist_names.is_empty() {
+            self.set_status("No artist information available".to_string(), crate::app::StatusLevel::Error);
+            return;
+        }
+
+        if artist_names.len() == 1 {
+            let name = artist_names[0].clone();
+            self.artist_selection.searching_for = Some(name.clone());
+            let _ = self.api_tx.send(ApiRequest::SearchArtists {
+                query: name,
+            });
+        } else {
+            self.artist_selection.artist_names = artist_names;
+            self.artist_selection.selected = 0;
+            self.artist_selection.active = true;
+        }
+    }
+
+    pub fn open_selected_artist_from_selection(&mut self) {
+        if let Some(name) = self.artist_selection.artist_names.get(self.artist_selection.selected).cloned() {
+            self.artist_selection.active = false;
+            self.artist_selection.searching_for = Some(name.clone());
+            self.artist_selection.artist_names.clear();
+            let _ = self.api_tx.send(ApiRequest::SearchArtists {
+                query: name,
+            });
+        }
+    }
 }

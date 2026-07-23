@@ -265,6 +265,21 @@ impl SortPalette {
     }
 }
 
+// ── Artist selection modal ────────────────────────────────────────────────────
+
+pub struct ArtistSelection {
+    pub active: bool,
+    pub artist_names: Vec<String>,
+    pub selected: usize,
+    pub searching_for: Option<String>,
+}
+
+impl Default for ArtistSelection {
+    fn default() -> Self {
+        Self { active: false, artist_names: Vec::new(), selected: 0, searching_for: None }
+    }
+}
+
 // ── Command palette ───────────────────────────────────────────────────────────
 
 pub struct CommandState {
@@ -439,6 +454,7 @@ impl KeybindGroup {
                 Keybind { key: "Enter", action: "Select/Open" },
                 Keybind { key: "a", action: "Add to queue" },
                 Keybind { key: "f", action: "Toggle favorite/follow/save" },
+                Keybind { key: "g", action: "Go to artist" },
                 Keybind { key: "s", action: "Sort" },
                 Keybind { key: "r", action: "Start radio" },
                 Keybind { key: "c", action: "Copy share link (song)" },

@@ -305,6 +305,19 @@ impl App {
                 }
             }
 
+            ApiResponse::SearchedArtists(artists) => {
+                if let Some(search_query) = self.artist_selection.searching_for.take() {
+                    let exact_match: Option<Artist> = artists.into_iter()
+                        .find(|a| a.name.to_lowercase() == search_query.to_lowercase());
+
+                    if let Some(artist) = exact_match {
+                        self.open_artist(artist);
+                    } else {
+                        self.set_status(format!("Artist '{}' not found", search_query), StatusLevel::Error);
+                    }
+                }
+            }
+
             ApiResponse::Error(msg) => {
                 self.set_status(msg, StatusLevel::Error);
             }

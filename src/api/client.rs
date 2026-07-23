@@ -398,6 +398,19 @@ impl ApiClient {
         .await
     }
 
+    pub async fn search_artists(&self, query: &str, limit: u32) -> Result<Vec<Artist>> {
+        let resp: SearchResponse = self.get(
+            "/search",
+            &[
+                ("query", query.to_string()),
+                ("types", "ARTISTS".to_string()),
+                ("limit", limit.to_string()),
+            ],
+        )
+        .await?;
+        Ok(resp.artists.map(|p| p.items).unwrap_or_default())
+    }
+
     // ── Albums ────────────────────────────────────────────────────────────────
 
     pub async fn get_album(&self, album_id: u64) -> Result<Album> {

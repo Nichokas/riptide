@@ -106,6 +106,11 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    if app.artist_selection.active {
+        handle_artist_selection_input(app, key);
+        return;
+    }
+
     // Search overlay captures all keys while active, regardless of current tab.
     if app.search.active {
         handle_search_input(app, key);
@@ -142,6 +147,13 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('+') | KeyCode::Char('=') => { let _ = app.player_tx.send(PlayerCmd::ChangeVolume(5)); },
         KeyCode::Char('-') => { let _ = app.player_tx.send(PlayerCmd::ChangeVolume(-5)); },
+        KeyCode::Char('g') => {
+            if let Some(track) = get_selected_track(app) {
+                app.go_to_artist_from_track(&track);
+            } else {
+                app.set_status("No track selected".to_string(), crate::app::StatusLevel::Error);
+            }
+        }
         _ => handle_navigation(app, key),
     }
 }
@@ -822,6 +834,45 @@ fn handle_queue_input(app: &mut App, key: KeyEvent) {
         KeyCode::Char(' ') => app.toggle_pause(),
         KeyCode::Char('q') | KeyCode::Char('Q') => {
             app.should_quit = true;
+        }
+        _ => {}
+    }
+}
+
+fn get_selected_track(app: &App) -> Option<crate::api::models::Track> {
+    if let Some(View::PlaylistDetail(detail)) = app.view_stack.last() {
+        return detail.tracks.selected_item().cloned();
+    }
+    if let Some(View::ArtistDetail(detail)) = app.view_stack.last() {
+        return detail.tracks.selected_item().cloned();
+    }
+    if app.current_tab == Tab::Favorites {
+        return app.favorites.selected_item().cloned();
+    }
+    if app.now_playing.queue_index < app.now_playing.queue.len() {
+        return Some(app.now_playing.queue[app.now_playing.queue_index].clone());
+    }
+    None
+}
+
+fn handle_artist_selection_input(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.artist_selection.active = false;
+        }
+        KeyCode::Up => {
+            if app.artist_selection.selected > 0 {
+                app.artist_selection.selected -= 1;
+            }
+        }
+        KeyCode::Down => {
+            let len = app.artist_selection.artist_names.len();
+            if app.artist_selection.selected + 1 < len {
+                app.artist_selection.selected += 1;
+            }
+        }
+        KeyCode::Enter => {
+            app.open_selected_artist_from_selection();
         }
         _ => {}
     }

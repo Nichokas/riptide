@@ -42,6 +42,7 @@ pub enum ApiRequest {
     RemovePlaylist { uuid: String },
     TrackRadio { track_id: u64 },
     ArtistRadio { artist_id: u64 },
+    SearchArtists { query: String },
 }
 
 #[derive(Debug)]
@@ -78,6 +79,7 @@ pub enum ApiResponse {
     PlaylistSaved,
     PlaylistRemoved { uuid: String },
     RadioTracks { tracks: Vec<Track> },
+    SearchedArtists(Vec<Artist>),
     Error(String),
 }
 
@@ -330,6 +332,11 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         ApiRequest::ArtistRadio { artist_id } => match client.get_artist_radio(artist_id, 25).await {
             Ok(page) => ApiResponse::RadioTracks { tracks: page.items },
             Err(e) => ApiResponse::Error(format!("radio: {e}")),
+        },
+
+        ApiRequest::SearchArtists { query } => match client.search_artists(&query, 10).await {
+            Ok(artists) => ApiResponse::SearchedArtists(artists),
+            Err(e) => ApiResponse::Error(format!("search artists: {e}")),
         },
 
         ApiRequest::FetchLyrics { track_id } => {

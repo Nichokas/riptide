@@ -136,6 +136,17 @@ impl Track {
             .unwrap_or("")
     }
 
+    pub fn all_artist_names(&self) -> String {
+        if !self.artists.is_empty() {
+            self.artists.iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            self.artist_name().to_string()
+        }
+    }
+
     pub fn quality_badge(&self) -> Option<&'static str> {
         let tags = self.media_metadata.as_ref().map(|m| m.tags.as_slice()).unwrap_or(&[]);
         if tags.iter().any(|t| t == "HIRES_LOSSLESS") {
