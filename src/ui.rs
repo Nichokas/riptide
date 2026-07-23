@@ -886,16 +886,15 @@ fn render_artist_tracks_full(
             let playing = app.now_playing.track.as_ref().map(|t| t.id == track.id).unwrap_or(false);
             let indicator = if playing { "♪ " } else { "" };
 
-            let quality_span = track.quality_badge()
-                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-                .unwrap_or_else(|| Span::raw(""));
-
             let title_span = Span::styled(
                 format!("{prefix}{indicator}{i:>2}. {} ({})", track.title, track.duration_display()),
                 style
             );
 
-            ListItem::new(Line::from(vec![quality_span, title_span]))
+            let badge = track.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
+            let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
+
+            ListItem::new(Line::from(vec![title_span, badge_span]))
         })
         .collect();
 
@@ -937,16 +936,15 @@ fn render_artist_albums(
             let year = album.release_date.as_deref().and_then(|d| d.get(..4)).unwrap_or("----");
             let n = album.number_of_tracks.unwrap_or(0);
 
-            let quality_span = album.quality_badge()
-                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-                .unwrap_or_else(|| Span::raw(""));
-
             let title_span = Span::styled(
                 format!("{}{} ({}, {} tracks)", prefix, album.title, year, n),
                 style
             );
 
-            ListItem::new(Line::from(vec![quality_span, title_span]))
+            let badge = album.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
+            let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
+
+            ListItem::new(Line::from(vec![title_span, badge_span]))
         })
         .collect();
 
@@ -988,16 +986,15 @@ fn render_artist_eps(
             let year = album.release_date.as_deref().and_then(|d| d.get(..4)).unwrap_or("----");
             let n = album.number_of_tracks.unwrap_or(0);
 
-            let quality_span = album.quality_badge()
-                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-                .unwrap_or_else(|| Span::raw(""));
-
             let title_span = Span::styled(
                 format!("{}{} ({}, {} tracks)", prefix, album.title, year, n),
                 style
             );
 
-            ListItem::new(Line::from(vec![quality_span, title_span]))
+            let badge = album.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
+            let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
+
+            ListItem::new(Line::from(vec![title_span, badge_span]))
         })
         .collect();
 
@@ -1039,16 +1036,15 @@ fn render_artist_singles(
             let year = album.release_date.as_deref().and_then(|d| d.get(..4)).unwrap_or("----");
             let n = album.number_of_tracks.unwrap_or(0);
 
-            let quality_span = album.quality_badge()
-                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-                .unwrap_or_else(|| Span::raw(""));
-
             let title_span = Span::styled(
                 format!("{}{} ({}, {} tracks)", prefix, album.title, year, n),
                 style
             );
 
-            ListItem::new(Line::from(vec![quality_span, title_span]))
+            let badge = album.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
+            let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
+
+            ListItem::new(Line::from(vec![title_span, badge_span]))
         })
         .collect();
 
@@ -1143,10 +1139,6 @@ fn render_track_list(
             let prefix = if is_selected { "▶ " } else { "  " };
             let playing = if is_playing { "♪ " } else { "" };
 
-            let quality_span = track.quality_badge()
-                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-                .unwrap_or_else(|| Span::raw(""));
-
             let title_span = Span::styled(
                 format!(
                     "{prefix}{playing}{i:>3}. {} — {} ({})",
@@ -1157,7 +1149,10 @@ fn render_track_list(
                 style
             );
 
-            ListItem::new(Line::from(vec![quality_span, title_span]))
+            let badge = track.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
+            let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
+
+            ListItem::new(Line::from(vec![title_span, badge_span]))
         })
         .collect();
 
@@ -1508,10 +1503,6 @@ fn render_search_pane_tracks(f: &mut Frame, app: &App, area: Rect) {
             let prefix = if selected { "▶ " } else { "  " };
             let playing = if is_playing { "♪ " } else { "" };
 
-            let quality_span = t.quality_badge()
-                .map(|q| Span::styled(format!("[{}] ", q), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-                .unwrap_or_else(|| Span::raw(""));
-
             let title_span = Span::styled(
                 format!(
                     "{prefix}{playing}{} — {} ({})",
@@ -1520,7 +1511,10 @@ fn render_search_pane_tracks(f: &mut Frame, app: &App, area: Rect) {
                 style
             );
 
-            ListItem::new(Line::from(vec![quality_span, title_span]))
+            let badge = t.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
+            let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
+
+            ListItem::new(Line::from(vec![title_span, badge_span]))
         })
         .collect();
 
