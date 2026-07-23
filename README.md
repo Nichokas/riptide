@@ -32,9 +32,43 @@ A terminal UI music player for Tidal, built with Rust.
 
 ## Installation
 
-### AUR
+### Pre-built Binaries
 
-Riptide is available to Arch users on the AUR and can be installed with:
+Download the latest binary for your platform from [GitHub Releases](https://github.com/fezzik-the-giant/riptide/releases):
+
+```bash
+# Linux x86_64
+wget https://github.com/fezzik-the-giant/riptide/releases/download/vX.Y.Z/riptide-vX.Y.Z-x86_64-linux-gnu.tar.gz
+tar -xzf riptide-vX.Y.Z-x86_64-linux-gnu.tar.gz
+./riptide
+
+# macOS x86_64
+wget https://github.com/fezzik-the-giant/riptide/releases/download/vX.Y.Z/riptide-vX.Y.Z-x86_64-apple-darwin.tar.gz
+tar -xzf riptide-vX.Y.Z-x86_64-apple-darwin.tar.gz
+./riptide
+
+# macOS ARM64 (Apple Silicon)
+wget https://github.com/fezzik-the-giant/riptide/releases/download/vX.Y.Z/riptide-vX.Y.Z-aarch64-apple-darwin.tar.gz
+tar -xzf riptide-vX.Y.Z-aarch64-apple-darwin.tar.gz
+./riptide
+```
+
+Or install to your PATH:
+
+```bash
+tar -xzf riptide-vX.Y.Z-*.tar.gz
+sudo mv riptide /usr/local/bin/
+```
+
+Verify checksums with the included `SHA256SUMS` file:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+### Arch (AUR)
+
+Riptide is available on the AUR and can be installed with:
 
 ```bash
 paru -S riptide
@@ -42,6 +76,10 @@ paru -S riptide
 # or if using yay
 yay -S riptide
 ```
+
+### Build from Source
+
+Requires Rust 1.85+ and Cargo:
 
 ```bash
 git clone https://github.com/fezzik-the-giant/riptide
@@ -145,75 +183,73 @@ Riptide ships with built-in fallback credentials (provided by the open-source [t
 
 ## Keybindings
 
-You can access keybinds hint in player by pressing `?`.
+Press `?` in the player to view all keybinds. Here's the complete reference:
 
 ### Global
 
-| Key       | Action                  |
-| --------- | ----------------------- |
-| `q` / `Q` | Quit                    |
-| `/`       | Open command palette    |
-| `Tab`     | Cycle to next tab       |
-| `Space`   | Pause / resume          |
-| `n`       | Next track              |
-| `p`       | Previous track          |
-| `z`       | Toggle shuffle          |
-| `+` / `=` | Volume Up               |
-| `-`       | Volume Down             |
-| `Esc`     | Go back / close overlay |
+| Key       | Action           |
+| --------- | ---------------- |
+| `?`       | Show this help   |
+| `q`       | Quit             |
+| `/`       | Command palette  |
+| `Tab`     | Next tab         |
+| `Space`   | Play/Pause       |
+| `n`       | Next track       |
+| `p`       | Previous track   |
+| `z`       | Toggle shuffle   |
+| `+ or =`  | Volume Up        |
+| `-`       | Volume Down      |
+| `Esc`     | Back/Go up       |
 
 ### Navigation
 
-| Key       | Action                      |
-| --------- | --------------------------- |
-| `↑` / `k` | Move up                     |
-| `↓` / `j` | Move down                   |
-| `←` / `h` | Move left / previous pane   |
-| `→` / `l` | Move right / next pane      |
-| `Enter`   | Open / play selected item   |
-| `a`       | Add selected track to queue |
-| `f`       | Toggle favorite/follow/save |
-| `s`       | Sort                        |
-| `r`       | Start radio                 |
+| Key     | Action                          |
+| ------- | ------------------------------- |
+| `↑`     | Up                              |
+| `↓`     | Down                            |
+| `Enter` | Select/Open                     |
+| `a`     | Add to queue                    |
+| `f`     | Toggle favorite/follow/save     |
+| `g`     | Go to artist                    |
+| `s`     | Sort                            |
+| `r`     | Start radio                     |
+| `c`     | Copy share link (song)          |
+| `C`     | Copy share link (album/playlist)|
+| `→`     | Focus queue                     |
 
-### Command palette (`/`)
+### Queue
 
-Type the start of a destination and press `Enter` (or `Tab` to autocomplete):
-
-| Command     | Action          |
-| ----------- | --------------- |
-| `favorites` | Go to Favorites |
-| `artists`   | Go to Artists   |
-| `playlists` | Go to Playlists |
-| `search`    | Open search     |
+| Key     | Action          |
+| ------- | --------------- |
+| `↑`     | Up              |
+| `↓`     | Down            |
+| `d`     | Remove track    |
+| `c`     | Copy share link (song)          |
+| `C`     | Copy share link (album)         |
+| `Enter` | Play track      |
+| `Esc`   | Close queue     |
 
 ### Search
 
-Press `/` → `search` (or use the command palette) to open the search overlay. Type your query and press `Enter`. Results are shown in three panes — Tracks, Artists, Playlists — switchable with `Tab` or `←`/`→`.
+Open search with `/` → `search` or via command palette.
 
-### Artist detail
+| Key       | Action      |
+| --------- | ----------- |
+| `↑`       | Up          |
+| `↓`       | Down        |
+| `Tab`     | Next pane   |
+| `Shift+Tab` | Prev pane |
+| `Enter`   | Select/Open |
+| `Esc`     | Close       |
 
-| Key                                 | Action                         |
-| ----------------------------------- | ------------------------------ |
-| `←` / `h` on Tracks                 | Focus bio pane                 |
-| `→` / `l` on Bio                    | Focus tracks pane              |
-| `←` / `→` between Tracks and Albums | Switch panel focus             |
-| `↑` / `↓` in Bio                    | Scroll biography               |
-| `Enter` on a track                  | Play track                     |
-| `Enter` on an album                 | Open album                     |
-| `a`                                 | Add highlighted track to queue |
+### Command Palette
 
-### Queue panel
+Open with `/` and type the start of a destination (Tab to autocomplete):
 
-Press `→` / `l` from any main tab to focus the queue.
-
-| Key                | Action                    |
-| ------------------ | ------------------------- |
-| `↑` / `k`          | Move cursor up            |
-| `↓` / `j`          | Move cursor down          |
-| `Enter`            | Play from cursor position |
-| `d` / `Delete`     | Remove track from queue   |
-| `←` / `h` or `Esc` | Return to main view       |
+- `favorites` — Go to Favorites
+- `artists` — Go to Artists
+- `playlists` — Go to Playlists
+- `search` — Open search
 
 ## Kitty terminal graphics
 
