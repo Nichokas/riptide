@@ -254,20 +254,20 @@ fn render_queue(f: &mut Frame, app: &App, area: Rect) {
         }
         let is_cur = i == current;
         let is_cursor = focused && i == cursor && !app.help_active;
-        let (indicator, artist_style, title_style) = if is_cur {
-            ("♪", Style::default().fg(Color::Rgb(180, 200, 255)), Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+        let (title_line, line_style) = if is_cur {
+            (format!("♪ {}", track.title), Style::default().fg(Color::Rgb(180, 200, 255)).add_modifier(Modifier::BOLD))
         } else if is_cursor {
-            ("▶", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+            (format!("▶ {}", track.title), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
         } else {
-            ("  ", Style::default().fg(DIM), Style::default().fg(Color::White))
+            (track.title.clone(), Style::default().fg(Color::White))
         };
 
         f.render_widget(
-            Paragraph::new(format!("{} {}", indicator, track.all_artist_names())).style(artist_style),
+            Paragraph::new(title_line).style(line_style),
             Rect::new(inner.x, y, inner.width, 1),
         );
         f.render_widget(
-            Paragraph::new(format!("  {}", track.title)).style(title_style),
+            Paragraph::new(format!("  {}", track.all_artist_names())).style(line_style),
             Rect::new(inner.x, y + 1, inner.width, 1),
         );
         y += item_h as u16;
@@ -1221,8 +1221,6 @@ fn render_track_list(
 pub fn is_kitty() -> bool {
     std::env::var("KITTY_WINDOW_ID").is_ok()
 }
-
-
 
 /// Build a Kitty graphics protocol escape sequence for the given raw image bytes.
 /// `image_id`: 1 = sidebar art, 2 = album detail art.
