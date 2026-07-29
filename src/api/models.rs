@@ -251,12 +251,50 @@ pub struct PlaybackInfo {
     #[serde(rename = "manifestMimeType")]
     pub manifest_mime_type: String,
     pub manifest: String,
+    #[allow(dead_code)]
+    #[serde(rename = "audioQuality", default)]
+    pub audio_quality: Option<String>,
+    #[allow(dead_code)]
+    #[serde(rename = "audioMode", default)]
+    pub audio_mode: Option<String>,
+    #[allow(dead_code)]
+    #[serde(rename = "bitDepth", default)]
+    pub bit_depth: Option<i32>,
+    #[allow(dead_code)]
+    #[serde(rename = "sampleRate", default)]
+    pub sample_rate: Option<i32>,
 }
 
-/// Decoded content of a `application/vnd.tidal.bts` manifest
+/// Decoded content of a `application/vnd.tidal.bts` manifest.
+///
+/// For LOSSLESS quality the `mimeType` is `"audio/flac"` and `codecs` is `"flac"`.
+/// For HIGH / LOW the codecs is something like `"mp4a.40.2"` (AAC).
 #[derive(Debug, Deserialize)]
 pub struct BtsManifest {
+    #[allow(dead_code)]
+    #[serde(rename = "mimeType", default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub codecs: Option<String>,
+    #[allow(dead_code)]
+    #[serde(rename = "encryptionType", default)]
+    pub encryption_type: Option<String>,
     pub urls: Vec<String>,
+}
+
+impl BtsManifest {
+    /// True when the manifest's codec is FLAC (i.e. real lossless).
+    pub fn is_flac(&self) -> bool {
+        self.codecs.as_deref() == Some("flac")
+    }
+
+    /// True when the manifest codec is an AAC variant.
+    #[allow(dead_code)]
+    pub fn is_aac(&self) -> bool {
+        self.codecs.as_deref()
+            .map(|c| c.starts_with("mp4a"))
+            .unwrap_or(false)
+    }
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
@@ -318,4 +356,10 @@ pub struct Config {
     pub country_code: String,
     /// Tidal session UUID — required as `sessionId` query param on all v1 requests.
     pub session_id: Option<String>,
+    /// Tracks which client credentials / auth method was used.
+    /// 0 = pre-migration (AAC-only, form-field auth, old client ID).
+    /// 1 = tiddl credentials + HTTP Basic Auth (lossless-capable).
+    /// Bumped to force re-auth when credentials or auth method change.
+    #[serde(default)]
+    pub auth_generation: u32,
 }

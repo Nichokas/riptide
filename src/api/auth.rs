@@ -7,10 +7,11 @@ use std::path::PathBuf;
 
 use super::models::{Config, DeviceAuthResponse, SessionInfo, TokenResponse};
 
-// Built-in fallback credentials (same ones the open-source tidalapi project uses).
-// Users can override these by setting client_id / client_secret in config.json.
-const DEFAULT_CLIENT_ID: &str = "fX2JxdmntZWK0ixT";
-const DEFAULT_CLIENT_SECRET: &str = "1Nn9AfDAjxrgJFJbKNWLeAyKGVGmINuXPPLHVXAvxAg==";
+// Built-in client credentials — must match a client that has lossless
+// streaming entitlement. These are the same credentials tiddl uses
+// (https://github.com/oskvr37/tiddl), which are known to work for FLAC.
+const DEFAULT_CLIENT_ID: &str = "4N3n6Q1x95LL5K7p";
+const DEFAULT_CLIENT_SECRET: &str = "oKOXfJW371cX6xaZ0PyhgGNBdNLlBZd4AKKYougMjik=";
 
 fn client_id(config: &Config) -> &str {
     config.client_id.as_deref().unwrap_or(DEFAULT_CLIENT_ID)
@@ -21,6 +22,10 @@ fn client_secret(config: &Config) -> &str {
 }
 
 const AUTH_BASE: &str = "https://auth.tidal.com/v1/oauth2";
+
+/// Current auth generation. Bump this when changing client credentials
+/// or auth method — forces users to re-authenticate.
+const CURRENT_AUTH_GENERATION: u32 = 1;
 
 pub fn config_path() -> PathBuf {
     dirs::config_dir()
@@ -62,6 +67,20 @@ fn is_token_valid(config: &Config) -> bool {
 }
 
 pub fn ensure_auth(config: &mut Config) -> Result<()> {
+    // Force re-auth whenever client credentials or auth method change.
+    if config.access_token.is_some() && config.auth_generation < CURRENT_AUTH_GENERATION {
+        eprintln!(
+            "[riptide] Auth upgrade (gen {} → {}) — re-authenticating for lossless streaming...",
+            config.auth_generation, CURRENT_AUTH_GENERATION,
+        );
+        config.access_token = None;
+        config.refresh_token = None;
+        config.expires_at = None;
+        config.session_id = None;
+        config.auth_generation = CURRENT_AUTH_GENERATION;
+        save_config(config)?;
+    }
+
     if is_token_valid(config) {
         // Re-fetch session info on each startup (session_id is ephemeral)
         if let Some(ref token) = config.access_token.clone() {
@@ -74,7 +93,11 @@ pub fn ensure_auth(config: &mut Config) -> Result<()> {
 
     if config.refresh_token.is_some() {
         match try_refresh_blocking(config) {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                config.auth_generation = CURRENT_AUTH_GENERATION;
+                save_config(config)?;
+                return Ok(());
+            }
             Err(_) => {
                 config.access_token = None;
                 config.refresh_token = None;
@@ -82,7 +105,10 @@ pub fn ensure_auth(config: &mut Config) -> Result<()> {
         }
     }
 
-    run_device_auth_flow(config)
+    run_device_auth_flow(config)?;
+    config.auth_generation = CURRENT_AUTH_GENERATION;
+    save_config(config)?;
+    Ok(())
 }
 
 fn make_blocking_client() -> Result<reqwest::blocking::Client> {
@@ -99,7 +125,6 @@ fn fetch_session_info(
     let resp = client
         .get("https://api.tidal.com/v1/sessions")
         .bearer_auth(access_token)
-        .header("x-tidal-client-version", "2025.7.16")
         .send()?;
 
     if !resp.status().is_success() {
@@ -124,12 +149,13 @@ fn try_refresh_blocking(config: &mut Config) -> Result<()> {
         .context("no refresh token")?
         .to_string();
 
-    // Send client_id and client_secret as form body fields — tidalapi does NOT use Basic auth
+    // Use HTTP Basic Auth (like tiddl does). Sending client_secret as
+    // a form field grants a restricted token that only serves AAC.
     let resp = client
         .post(format!("{AUTH_BASE}/token"))
+        .basic_auth(client_id(config), Some(client_secret(config)))
         .form(&[
             ("client_id", client_id(config)),
-            ("client_secret", client_secret(config)),
             ("grant_type", "refresh_token"),
             ("refresh_token", &refresh_token),
         ])
@@ -184,12 +210,14 @@ pub fn run_device_auth_flow(config: &mut Config) -> Result<()> {
     loop {
         std::thread::sleep(interval);
 
-        // client_id and client_secret go in the form body, not Basic auth
+        // Use HTTP Basic Auth for the token exchange — this grants
+        // a token with full lossless streaming privileges (like tiddl).
+        // Sending client_secret as a form field grants restricted AAC-only tokens.
         let result = client
             .post(format!("{AUTH_BASE}/token"))
+            .basic_auth(client_id(config), Some(client_secret(config)))
             .form(&[
                 ("client_id", client_id(config)),
-                ("client_secret", client_secret(config)),
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("device_code", auth.device_code.as_str()),
                 ("scope", "r_usr w_usr w_sub"),
@@ -229,9 +257,9 @@ pub async fn refresh_token_async(config: &Config, http: &reqwest::Client) -> Res
 
     Ok(http
         .post(format!("{AUTH_BASE}/token"))
+        .basic_auth(client_id(config), Some(client_secret(config)))
         .form(&[
             ("client_id", client_id(config)),
-            ("client_secret", client_secret(config)),
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
         ])
