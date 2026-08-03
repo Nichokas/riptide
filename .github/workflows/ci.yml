@@ -40,7 +40,7 @@ jobs:
 
   build-macos-intel:
     name: Build x86_64-macos
-    runs-on: macos-13-large
+    runs-on: macos-26-intel
     steps:
       - uses: actions/checkout@v5
 
@@ -58,7 +58,7 @@ jobs:
 
   build-macos-arm:
     name: Build aarch64-macos (native ARM)
-    runs-on: macos-latest-large
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
 
