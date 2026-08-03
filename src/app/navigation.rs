@@ -44,13 +44,6 @@ impl App {
         }
     }
 
-    /// Reset Kitty placement state on the current ArtistDetail so art is re-placed after returning.
-    pub fn reset_artist_art_placed(&mut self) {
-        if let Some(View::ArtistDetail(detail)) = self.view_stack.last() {
-            *detail.art_placed.borrow_mut() = None;
-        }
-    }
-
     // ── Opening views ─────────────────────────────────────────────────────────
 
     pub fn open_selected_artist(&mut self) {
@@ -71,8 +64,6 @@ impl App {
             focus: ArtistDetailFocus::Tracks,
             art_bytes: None,
             art_loading: has_picture,
-            art_cache: std::cell::RefCell::new(None),
-            art_placed: std::cell::RefCell::new(None),
             bio: None,
             bio_loading: true,
             bio_scroll: 0,
@@ -97,8 +88,6 @@ impl App {
             tracks: StatefulList::default(),
             art_bytes: None,
             art_loading: has_cover,
-            art_cache: std::cell::RefCell::new(None),
-            art_placed: std::cell::RefCell::new(None),
         }));
         let _ = self.api_tx.send(ApiRequest::LoadAlbum       { album_id });
         let _ = self.api_tx.send(ApiRequest::LoadAlbumTracks { album_id });

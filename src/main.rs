@@ -44,6 +44,26 @@ fn main() -> Result<()> {
 
     setup_panic_hook();
 
+    // Initialize logging to file
+    if let Ok(home) = std::env::var("HOME") {
+        let log_dir = std::path::PathBuf::from(home)
+            .join(".local/share/riptide");
+        let _ = std::fs::create_dir_all(&log_dir);
+        let file_appender = tracing_appender::rolling::daily(&log_dir, "riptide.log");
+
+        let log_level = std::env::var("RIPTIDE_LOG_LEVEL")
+            .or_else(|_| std::env::var("RUST_LOG"))
+            .unwrap_or_else(|_| "info".to_string());
+        let env_filter = tracing_subscriber::EnvFilter::new(&log_level);
+
+        let _ = tracing_subscriber::fmt()
+            .with_writer(file_appender)
+            .with_ansi(false)
+            .with_env_filter(env_filter)
+            .with_thread_ids(false)
+            .init();
+    }
+
     // Load config and ensure authentication (blocking, before TUI)
     let mut config = api::auth::load_config()?;
     api::auth::ensure_auth(&mut config)?;

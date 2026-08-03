@@ -92,6 +92,8 @@ impl ApiClient {
         }
         all_params.extend_from_slice(params);
 
+        tracing::debug!("API request: GET {}", path);
+
         let resp = self
             .http
             .get(&url)
@@ -102,7 +104,11 @@ impl ApiClient {
             .await
             .context("HTTP request failed")?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let status = resp.status();
+        tracing::debug!("API response: {} {}", status.as_u16(), path);
+
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            tracing::info!("Token expired, refreshing...");
             let new_token = refresh_token_async(&self.config, &self.http).await?;
             let new_access = new_token.access_token.clone();
             *self.token.write().await = new_access.clone();
@@ -120,9 +126,14 @@ impl ApiClient {
                 .await?);
         }
 
-        let bytes = resp.error_for_status()?.bytes().await?;
+        let bytes = resp.error_for_status().map_err(|e| {
+            let status = e.status().unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+            tracing::error!("API error {} on {}: {}", status.as_u16(), path, e);
+            e
+        })?.bytes().await?;
         serde_json::from_slice::<T>(&bytes).map_err(|e| {
             let snippet: String = String::from_utf8_lossy(&bytes).chars().take(300).collect();
+            tracing::error!("JSON parse error on {}: {} — body: {}", path, e, snippet);
             anyhow::anyhow!("{e} — body: {snippet}")
         })
     }
@@ -453,7 +464,18 @@ impl ApiClient {
 
     /// Fetch raw bytes from a public URL (e.g. Tidal's cover art CDN).
     pub async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        Ok(self.http.get(url).send().await?.error_for_status()?.bytes().await?.to_vec())
+        tracing::debug!("Fetching image bytes from CDN");
+        let resp = self.http.get(url).send().await?;
+        let status = resp.status();
+        tracing::debug!("Image fetch response: {}", status.as_u16());
+
+        let bytes = resp.error_for_status().map_err(|e| {
+            tracing::error!("Failed to fetch image: {}", e);
+            e
+        })?.bytes().await?;
+
+        tracing::debug!("Image fetched successfully, size: {} bytes", bytes.len());
+        Ok(bytes.to_vec())
     }
 
     async fn delete(&self, path: &str) -> Result<()> {

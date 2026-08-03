@@ -8,8 +8,9 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
+use ratatui_image::{picker::Picker, Image, Resize};
 
-use crate::app::{App, ArtPayload, ArtistDetailFocus, SearchPane, StatusLevel, Tab, View, KeybindGroup};
+use crate::app::{App, ArtistDetailFocus, SearchPane, StatusLevel, Tab, View, KeybindGroup};
 use crate::api::models::Track;
 
 const ACCENT: Color = Color::Cyan;
@@ -115,46 +116,7 @@ fn render_sidebar_art(f: &mut Frame, app: &App, area: Rect) {
     }
 
     if let Some(bytes) = &np.art_bytes {
-        let mut cache = np.art_cache.borrow_mut();
-        let stale = cache.as_ref().map(|(cw, ch, _)| *cw != w || *ch != h).unwrap_or(true);
-        if stale {
-            let payload = if is_kitty() {
-                ArtPayload::KittySeq(kitty_image_seq(bytes, w, h, 1))
-            } else {
-                ArtPayload::HalfBlocks(image_to_half_blocks(bytes, w as u32, h as u32))
-            };
-            *cache = Some((w, h, payload));
-        }
-        match cache.as_ref() {
-            Some((_, _, ArtPayload::HalfBlocks(lines))) => {
-                f.render_widget(Paragraph::new(lines.clone()), area);
-            }
-            Some((_, _, ArtPayload::KittySeq(seq))) if !seq.is_empty() => {
-                let buf = f.buffer_mut();
-                for y in area.y..area.y + area.height {
-                    for x in area.x..area.x + area.width {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            cell.reset();
-                            cell.skip = true;
-                        }
-                    }
-                }
-                let needs_place = {
-                    let placed = np.art_placed.borrow();
-                    match *placed {
-                        Some((pw, ph)) => pw != w || ph != h,
-                        None => true,
-                    }
-                };
-                if needs_place {
-                    use std::io::Write;
-                    let _ = write!(std::io::stdout(), "\x1b[{};{}H{}", area.y + 1, area.x + 1, seq);
-                    let _ = std::io::stdout().flush();
-                    *np.art_placed.borrow_mut() = Some((w, h));
-                }
-            }
-            _ => {}
-        }
+        render_image(f, bytes, area);
     } else if np.art_loading {
         let spinner = spinner_char(app.tick);
         f.render_widget(
@@ -724,46 +686,7 @@ fn render_artist_art(f: &mut Frame, app: &App, detail: &crate::app::ArtistDetail
     }
 
     if let Some(bytes) = &detail.art_bytes {
-        let mut cache = detail.art_cache.borrow_mut();
-        let stale = cache.as_ref().map(|(cw, ch, _)| *cw != w || *ch != h).unwrap_or(true);
-        if stale {
-            let payload = if is_kitty() {
-                crate::app::ArtPayload::KittySeq(kitty_image_seq(bytes, w, h, 3))
-            } else {
-                crate::app::ArtPayload::HalfBlocks(image_to_half_blocks(bytes, w as u32, h as u32))
-            };
-            *cache = Some((w, h, payload));
-        }
-        match cache.as_ref() {
-            Some((_, _, crate::app::ArtPayload::HalfBlocks(lines))) => {
-                f.render_widget(Paragraph::new(lines.clone()), inner);
-            }
-            Some((_, _, crate::app::ArtPayload::KittySeq(seq))) if !seq.is_empty() => {
-                let buf = f.buffer_mut();
-                for y in inner.y..inner.y + inner.height {
-                    for x in inner.x..inner.x + inner.width {
-                        if let Some(cell) = buf.cell_mut((x, y)) {
-                            cell.reset();
-                            cell.skip = true;
-                        }
-                    }
-                }
-                let needs_place = {
-                    let placed = detail.art_placed.borrow();
-                    match *placed {
-                        Some((pw, ph)) => pw != w || ph != h,
-                        None => true,
-                    }
-                };
-                if needs_place {
-                    use std::io::Write;
-                    let _ = write!(std::io::stdout(), "\x1b[{};{}H{}", inner.y + 1, inner.x + 1, seq);
-                    let _ = std::io::stdout().flush();
-                    *detail.art_placed.borrow_mut() = Some((w, h));
-                }
-            }
-            _ => {}
-        }
+        render_image(f, bytes, inner);
     } else if detail.art_loading {
         f.render_widget(
             Paragraph::new(spinner_char(app.tick).to_string())
@@ -1218,86 +1141,6 @@ fn render_track_list(
 
 // ── Album detail ──────────────────────────────────────────────────────────────
 
-pub fn is_kitty() -> bool {
-    std::env::var("KITTY_WINDOW_ID").is_ok()
-}
-
-/// Build a Kitty graphics protocol escape sequence for the given raw image bytes.
-/// `image_id`: 1 = sidebar art, 2 = album detail art.
-fn kitty_image_seq(bytes: &[u8], cols: u16, rows: u16, image_id: u16) -> String {
-    use image::GenericImageView;
-    let img = match image::load_from_memory(bytes) {
-        Ok(img) => img,
-        Err(_) => return String::new(),
-    };
-    let (w, h) = img.dimensions();
-    let rgba = img.to_rgba8().into_raw();
-    let b64 = base64_encode(&rgba);
-
-    const CHUNK: usize = 4096;
-    let mut seq = String::new();
-    let mut pos = 0;
-    let mut first = true;
-    while pos < b64.len() {
-        let end = (pos + CHUNK).min(b64.len());
-        let chunk = &b64[pos..end];
-        let more = u8::from(end < b64.len());
-        if first {
-            seq.push_str(&format!(
-                "\x1b_Ga=T,f=32,i={image_id},q=2,s={w},v={h},c={cols},r={rows},m={more};{chunk}\x1b\\"
-            ));
-            first = false;
-        } else {
-            seq.push_str(&format!("\x1b_Gm={more};{chunk}\x1b\\"));
-        }
-        pos = end;
-    }
-    seq
-}
-
-fn base64_encode(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(CHARS[(n >> 18) as usize] as char);
-        out.push(CHARS[((n >> 12) & 0x3F) as usize] as char);
-        out.push(if chunk.len() > 1 { CHARS[((n >> 6) & 0x3F) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { CHARS[(n & 0x3F) as usize] as char } else { '=' });
-    }
-    out
-}
-
-fn image_to_half_blocks(data: &[u8], cols: u32, rows: u32) -> Vec<Line<'static>> {
-    use image::GenericImageView;
-
-    let Ok(img) = image::load_from_memory(data) else {
-        return vec![];
-    };
-    let img = img.resize_exact(cols, rows * 2, image::imageops::FilterType::Lanczos3);
-
-    (0..rows)
-        .map(|row| {
-            let spans: Vec<Span<'static>> = (0..cols)
-                .map(|col| {
-                    let top = img.get_pixel(col, row * 2);
-                    let bot = img.get_pixel(col, row * 2 + 1);
-                    Span::styled(
-                        "▀",
-                        Style::default()
-                            .fg(Color::Rgb(top[0], top[1], top[2]))
-                            .bg(Color::Rgb(bot[0], bot[1], bot[2])),
-                    )
-                })
-                .collect();
-            Line::from(spans)
-        })
-        .collect()
-}
-
 fn render_album_detail(f: &mut Frame, app: &App, detail: &crate::app::AlbumDetail, area: Rect) {
     // Left column: art (top) + metadata (below).  Right column: full-height track list.
     let art_cols = (area.width / 4).max(10);
@@ -1330,52 +1173,7 @@ fn render_album_detail(f: &mut Frame, app: &App, detail: &crate::app::AlbumDetai
     f.render_widget(art_block, header_cols[0]);
 
     if let Some(bytes) = &detail.art_bytes {
-        let w = art_inner.width;
-        let h = art_inner.height;
-        if w > 0 && h > 0 {
-            let mut cache = detail.art_cache.borrow_mut();
-            let stale = cache.as_ref()
-                .map(|(cw, ch, _)| *cw != w || *ch != h)
-                .unwrap_or(true);
-            if stale {
-                let payload = if is_kitty() {
-                    ArtPayload::KittySeq(kitty_image_seq(bytes, w, h, 2))
-                } else {
-                    ArtPayload::HalfBlocks(image_to_half_blocks(bytes, w as u32, h as u32))
-                };
-                *cache = Some((w, h, payload));
-            }
-            match cache.as_ref() {
-                Some((_, _, ArtPayload::HalfBlocks(lines))) => {
-                    f.render_widget(Paragraph::new(lines.clone()), art_inner);
-                }
-                Some((_, _, ArtPayload::KittySeq(seq))) if !seq.is_empty() => {
-                    let buf = f.buffer_mut();
-                    for y in art_inner.y..art_inner.y + art_inner.height {
-                        for x in art_inner.x..art_inner.x + art_inner.width {
-                            if let Some(cell) = buf.cell_mut((x, y)) {
-                                cell.reset();
-                                cell.skip = true;
-                            }
-                        }
-                    }
-                    let needs_place = {
-                        let placed = detail.art_placed.borrow();
-                        match *placed {
-                            Some((pw, ph)) => pw != w || ph != h,
-                            None => true,
-                        }
-                    };
-                    if needs_place {
-                        use std::io::Write;
-                        let _ = write!(std::io::stdout(), "\x1b[{};{}H{}", art_inner.y + 1, art_inner.x + 1, seq);
-                        let _ = std::io::stdout().flush();
-                        *detail.art_placed.borrow_mut() = Some((w, h));
-                    }
-                }
-                _ => {}
-            }
-        }
+        render_image(f, bytes, art_inner);
     } else if detail.art_loading {
         let spinner = spinner_char(app.tick);
         f.render_widget(
@@ -1932,4 +1730,34 @@ fn render_squib(app: &App, width: u16) -> Paragraph<'static> {
         .collect();
 
     Paragraph::new(Line::from(spans))
+}
+
+// Initialize picker once at startup to avoid blocking on every frame
+fn get_picker() -> &'static Picker {
+    static PICKER: std::sync::OnceLock<Picker> = std::sync::OnceLock::new();
+    PICKER.get_or_init(|| {
+        let term = std::env::var("TERM").unwrap_or_else(|_| "unknown".to_string());
+        let colorterm = std::env::var("COLORTERM").unwrap_or_else(|_| "not set".to_string());
+        let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+        tracing::info!(
+            "Terminal: TERM={}, COLORTERM={} → Image protocol: {:?}",
+            term,
+            colorterm,
+            picker.protocol_type()
+        );
+        picker
+    })
+}
+
+fn render_image(f: &mut Frame, bytes: &[u8], area: Rect) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    if let Ok(img) = image::load_from_memory(bytes) {
+        let picker = get_picker();
+        if let Ok(protocol) = picker.new_protocol(img, area.into(), Resize::Fit(None)) {
+            f.render_widget(Image::new(&protocol), area);
+        }
+    }
 }

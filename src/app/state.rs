@@ -102,8 +102,6 @@ pub struct ArtistDetail {
     pub focus: ArtistDetailFocus,
     pub art_bytes: Option<Vec<u8>>,
     pub art_loading: bool,
-    pub art_cache: std::cell::RefCell<Option<(u16, u16, ArtPayload)>>,
-    pub art_placed: std::cell::RefCell<Option<(u16, u16)>>,
     pub bio: Option<String>,
     pub bio_loading: bool,
     pub bio_scroll: u16,
@@ -118,18 +116,12 @@ pub struct PlaylistDetail {
 
 // ── Album detail / art payload ────────────────────────────────────────────────
 
-pub enum ArtPayload {
-    HalfBlocks(Vec<ratatui::text::Line<'static>>),
-    KittySeq(String),
-}
 
 pub struct AlbumDetail {
     pub album: Album,
     pub tracks: StatefulList<Track>,
     pub art_bytes: Option<Vec<u8>>,
     pub art_loading: bool,
-    pub art_cache: std::cell::RefCell<Option<(u16, u16, ArtPayload)>>,
-    pub art_placed: std::cell::RefCell<Option<(u16, u16)>>,
 }
 
 // ── View stack ────────────────────────────────────────────────────────────────
@@ -320,8 +312,6 @@ pub struct NowPlaying {
     pub queue_index: usize,
     pub art_bytes: Option<Vec<u8>>,
     pub art_loading: bool,
-    pub art_cache: std::cell::RefCell<Option<(u16, u16, ArtPayload)>>,
-    pub art_placed: std::cell::RefCell<Option<(u16, u16)>>,
     pub lyrics_synced: Vec<(f64, String)>,
     pub lyrics_plain: Vec<String>,
     pub lyrics_loading: bool,
@@ -349,8 +339,6 @@ impl Default for NowPlaying {
             queue_index: 0,
             art_bytes: None,
             art_loading: false,
-            art_cache: std::cell::RefCell::new(None),
-            art_placed: std::cell::RefCell::new(None),
             lyrics_synced: Vec::new(),
             lyrics_plain: Vec::new(),
             lyrics_loading: false,

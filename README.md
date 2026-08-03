@@ -1,5 +1,17 @@
 # Riptide
 
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Setup](#setup)
+- [Configuration](#configuration)
+- [Keybindings](#keybindings)
+- [Image Rendering](#image-rendering)
+- [Logging](#logging)
+- [License](#license)
+
 A terminal UI music player for Tidal, built with Rust.
 
 <img width="1920" height="1080" alt="Screenshot_2026-05-12-092952" src="https://github.com/user-attachments/assets/83e390ce-1884-4d72-8486-2f406faa3d2a" />
@@ -9,7 +21,7 @@ A terminal UI music player for Tidal, built with Rust.
 - Browse your Tidal library: favorites, artists, playlists, and albums
 - Full-text search across tracks, artists, and playlists
 - Synchronized lyrics
-- Album art in the sidebar and album detail view (pixel-perfect in Kitty terminal, half-block fallback elsewhere)
+- Album art in the sidebar and album detail view (quality determined by terminal graphics protocol)
 - Artist pictures and biography
 - Queue management — add tracks, navigate to any position, remove entries, play from any point
 - Gapless playback via mpv
@@ -123,7 +135,7 @@ You can also run riptide directly:
 nix run github:fezzik-the-giant/riptide
 ```
 
-## First run & authentication
+## Setup
 
 Riptide uses Tidal's OAuth device-authorization flow. On first launch it will print a URL and a short code:
 
@@ -251,9 +263,30 @@ Open with `/` and type the start of a destination (Tab to autocomplete):
 - `playlists` — Go to Playlists
 - `search` — Open search
 
-## Kitty terminal graphics
+## Image Rendering
 
-If you run Riptide inside [Kitty](https://sw.kovidgoyal.net/kitty/), album art and artist pictures are rendered at full pixel resolution using the Kitty graphics protocol. In any other terminal, a half-block (`▀`) approximation is used instead.
+Album art and artist pictures are rendered using the best available graphics protocol for your terminal:
+
+| Terminal                                   | Protocol | Quality |
+|--------------------------------------------| --- | --- |
+| [Kitty](https://sw.kovidgoyal.net/kitty/)  | Kitty graphics | Full color, pixel-perfect |
+| [foot](https://codeberg.org/dnkl/foot) | Sixel | Full color |
+| [mintty](https://github.com/mintty/mintty) | Sixel | Full color |
+| Other terminals                            | Half-blocks | Color approximation |
+
+The terminal is automatically detected via the `TERM` and `COLORTERM` environment variables. If your terminal supports Kitty graphics, it will be used. If not, Riptide falls back to Sixel (if supported), and finally to half-block characters as a universal fallback.
+
+## Logging
+
+Logs are written to `~/.local/share/riptide/riptide.log.<date>` and roll on a daily basis. By default, the logging level is set to `INFO` providing only errors and important events.
+
+To adjust logging verbosity for debugging, use the `RIPTIDE_LOG_LEVEL` environment variable:
+
+```bash
+RIPTIDE_LOG_LEVEL=debug riptide  # Verbose logging (includes all API requests)
+RIPTIDE_LOG_LEVEL=info riptide   # Standard logging (errors and important events)
+RIPTIDE_LOG_LEVEL=error riptide  # Errors only
+```
 
 ## License
 

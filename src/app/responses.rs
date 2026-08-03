@@ -157,15 +157,11 @@ impl App {
                 if is_now_playing {
                     self.now_playing.art_bytes = Some(image_data.clone());
                     self.now_playing.art_loading = false;
-                    *self.now_playing.art_cache.borrow_mut() = None;
-                    *self.now_playing.art_placed.borrow_mut() = None;
                 }
                 if let Some(View::AlbumDetail(detail)) = self.view_stack.last_mut() {
                     if detail.album.id == album_id {
                         detail.art_bytes = Some(image_data);
                         detail.art_loading = false;
-                        *detail.art_cache.borrow_mut() = None;
-                        *detail.art_placed.borrow_mut() = None;
                     }
                 }
             }
@@ -175,8 +171,6 @@ impl App {
                     if detail.artist.id == artist_id {
                         detail.art_bytes = Some(image_data);
                         detail.art_loading = false;
-                        *detail.art_cache.borrow_mut() = None;
-                        *detail.art_placed.borrow_mut() = None;
                     }
                 }
             }

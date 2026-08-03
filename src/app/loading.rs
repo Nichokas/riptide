@@ -51,8 +51,6 @@ impl App {
             None => return,
         };
         self.now_playing.art_bytes = None;
-        *self.now_playing.art_cache.borrow_mut() = None;
-        *self.now_playing.art_placed.borrow_mut() = None;
         if let Some(cover_id) = cover_id {
             self.now_playing.art_loading = true;
             let _ = self.api_tx.send(ApiRequest::FetchAlbumArt { album_id, cover_id });

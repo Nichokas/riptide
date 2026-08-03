@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-08-03
+
+### Added
+- Structured logging and ability to change logging level through environment variable
+
+### Changed
+- Replaced image rendering logic with [ratatui-image](https://crates.io/crates/ratatui-image) to include Sixel support
+- Riptide now detects your terminal graphics protocol and renders image accordingly through Kitty, Sixel, or halfblock
+
 ## [0.7.3] - 2026-07-27
 
 ### Changed
