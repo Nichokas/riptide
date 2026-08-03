@@ -422,6 +422,7 @@ impl KeybindGroup {
                 Keybind { key: "q", action: "Quit" },
                 Keybind { key: "/", action: "Command palette" },
                 Keybind { key: "Tab", action: "Next tab" },
+                Keybind { key: "Shift+Tab (BackTab)", action: "Previous tab" },
                 Keybind { key: "Space", action: "Play/Pause" },
                 Keybind { key: "n", action: "Next track" },
                 Keybind { key: "p", action: "Previous track" },

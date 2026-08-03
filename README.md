@@ -5,6 +5,11 @@
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
+  - [Automated Install](#automated-install)
+  - [Manual Install](#manual-install)
+  - [Arch (AUR)](#arch-aur)
+  - [Build from Source](#build-from-source)
+  - [Nix](#nix)
 - [Setup](#setup)
 - [Configuration](#configuration)
 - [Keybindings](#keybindings)
@@ -45,7 +50,22 @@ A terminal UI music player for Tidal, built with Rust.
 
 ## Installation
 
-### Pre-built Binaries
+### Automated Install
+
+Download and install the latest binary automatically:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fezzik-the-giant/riptide/master/install.sh | bash
+```
+
+The script detects your platform (Linux/macOS, x86_64/ARM64) and installs to `/usr/local/bin`.
+
+To install to a custom directory:
+```bash
+INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/fezzik-the-giant/riptide/master/install.sh | bash
+```
+
+### Manual Install
 
 Download the latest binary for your platform from [GitHub Releases](https://github.com/fezzik-the-giant/riptide/releases):
 

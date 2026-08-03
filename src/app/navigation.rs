@@ -23,6 +23,21 @@ impl App {
         }
     }
 
+    pub fn prev_tab(&mut self) {
+        self.current_tab = match self.current_tab {
+            Tab::Favorites => Tab::Search,
+            Tab::Artists   => Tab::Favorites,
+            Tab::Albums    => Tab::Artists,
+            Tab::Playlists => Tab::Albums,
+            Tab::Search    => Tab::Playlists,
+        };
+        self.view_stack.clear();
+        if self.current_tab == Tab::Search {
+            self.search.active = true;
+            self.search.query.clear();
+        }
+    }
+
     pub fn set_tab(&mut self, tab: Tab) {
         self.current_tab = tab;
         self.view_stack.clear();

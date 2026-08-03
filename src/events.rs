@@ -52,10 +52,20 @@ pub fn run_app(
         }
 
         // Poll for key events with a short timeout to keep animations smooth
-        if event::poll(Duration::from_millis(16))? {
+        // Drain all pending key events and only process the last one to avoid lag from key repeat
+        let mut last_key_event: Option<KeyEvent> = None;
+        while event::poll(Duration::from_millis(0))? {
             if let Event::Key(key) = event::read()? {
-                handle_key(app, key);
+                last_key_event = Some(key);
             }
+        }
+        if let Some(key) = last_key_event {
+            handle_key(app, key);
+        }
+
+        // Small delay to keep animations smooth
+        if !event::poll(Duration::from_millis(16))? {
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
     Ok(())
@@ -134,7 +144,16 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         KeyCode::Tab => {
             if leaving_album(app) { kitty_delete_album_art(); }
             if leaving_artist(app) { kitty_delete_artist_art(); }
-            app.next_tab();
+            if key.modifiers.contains(KeyModifiers::SHIFT) {
+                app.prev_tab();
+            } else {
+                app.next_tab();
+            }
+        }
+        KeyCode::BackTab => {
+            if leaving_album(app) { kitty_delete_album_art(); }
+            if leaving_artist(app) { kitty_delete_artist_art(); }
+            app.prev_tab();
         }
         KeyCode::Char(' ') => app.toggle_pause(),
         KeyCode::Char('n') => app.next_track(),
@@ -758,6 +777,10 @@ fn handle_search_input(app: &mut App, key: KeyEvent) {
         KeyCode::Tab => {
             app.search.active = false;
             app.next_tab();
+        }
+        KeyCode::BackTab => {
+            app.search.active = false;
+            app.prev_tab();
         }
         KeyCode::Esc => {
             // Close overlay, stay on current view.
