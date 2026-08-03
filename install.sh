@@ -102,38 +102,73 @@ download_and_extract() {
 
     log_info "Downloading from: $download_url"
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir="/tmp/riptide-install"
+    rm -rf "$temp_dir"
+    mkdir -p "$temp_dir"
     trap "rm -rf $temp_dir" EXIT
 
     # Download binary
     if command -v curl &> /dev/null; then
-        curl -fsSL "$download_url" -o "$temp_dir/riptide.tar.gz"
-        if [ -n "${CHECKSUM_CHECK:-1}" ]; then
-            curl -fsSL "$checksum_url" -o "$temp_dir/riptide.tar.gz.sha256"
+        if ! curl -fsSL "$download_url" -o "$temp_dir/riptide.tar.gz"; then
+            log_error "Failed to download binary"
+            exit 1
         fi
+        # Try to download checksum, but don't fail if it's not available
+        curl -fsSL "$checksum_url" -o "$temp_dir/riptide.tar.gz.sha256" 2>/dev/null || true
     elif command -v wget &> /dev/null; then
-        wget -q "$download_url" -O "$temp_dir/riptide.tar.gz"
-        if [ -n "${CHECKSUM_CHECK:-1}" ]; then
-            wget -q "$checksum_url" -O "$temp_dir/riptide.tar.gz.sha256"
+        if ! wget -q "$download_url" -O "$temp_dir/riptide.tar.gz"; then
+            log_error "Failed to download binary"
+            exit 1
         fi
+        # Try to download checksum, but don't fail if it's not available
+        wget -q "$checksum_url" -O "$temp_dir/riptide.tar.gz.sha256" 2>/dev/null || true
+    else
+        log_error "curl or wget required"
+        exit 1
     fi
 
     # Verify checksum if available
-    if [ -f "$temp_dir/riptide.tar.gz.sha256" ]; then
+    if [ -f "$temp_dir/riptide.tar.gz.sha256" ] && [ -s "$temp_dir/riptide.tar.gz.sha256" ]; then
         log_info "Verifying checksum..."
-        cd "$temp_dir"
+        # Update checksum file to reference our renamed binary
+        sed -i 's/riptide-[^[:space:]]*\.tar\.gz/riptide.tar.gz/' "$temp_dir/riptide.tar.gz.sha256"
+
         if command -v sha256sum &> /dev/null; then
-            sha256sum -c riptide.tar.gz.sha256
+            cd "$temp_dir"
+            if sha256sum -c riptide.tar.gz.sha256 > /dev/null 2>&1; then
+                cd - > /dev/null
+                log_info "Checksum verified!"
+            else
+                cd - > /dev/null
+                log_warn "Checksum verification failed"
+            fi
         elif command -v shasum &> /dev/null; then
-            shasum -a 256 -c riptide.tar.gz.sha256
+            cd "$temp_dir"
+            if shasum -a 256 -c riptide.tar.gz.sha256 > /dev/null 2>&1; then
+                cd - > /dev/null
+                log_info "Checksum verified!"
+            else
+                cd - > /dev/null
+                log_warn "Checksum verification failed"
+            fi
         else
             log_warn "sha256sum/shasum not found, skipping verification"
         fi
+    else
+        log_warn "Checksum file not available, skipping verification"
     fi
 
     # Extract binary
     log_info "Extracting..."
-    tar -xzf "$temp_dir/riptide.tar.gz" -C "$temp_dir"
+    if ! tar -xzf "$temp_dir/riptide.tar.gz" -C "$temp_dir"; then
+        log_error "Failed to extract binary"
+        exit 1
+    fi
+
+    if [ ! -f "$temp_dir/riptide" ]; then
+        log_error "Binary not found in archive"
+        exit 1
+    fi
 
     # Make executable and copy to install directory
     chmod +x "$temp_dir/riptide"
