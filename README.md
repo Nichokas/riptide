@@ -14,7 +14,8 @@
 
 A terminal UI music player for Tidal, built with Rust.
 
-<img width="1920" height="1080" alt="Screenshot_2026-05-12-092952" src="https://github.com/user-attachments/assets/83e390ce-1884-4d72-8486-2f406faa3d2a" />
+<img width="1920" height="1080" alt="Screenshot_2026-08-03_16 22 33" src="https://github.com/user-attachments/assets/96b5b536-5d5a-495c-abc3-72cc11e47e81" />
+
 
 ## Features
 
