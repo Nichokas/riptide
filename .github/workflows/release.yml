@@ -25,74 +25,107 @@ jobs:
       - name: Run tests
         run: cargo test
 
-  build:
+  build-linux:
     needs: test
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            binary_name: riptide
-          - target: x86_64-apple-darwin
-            os: macos-latest-large
-            binary_name: riptide
-          - target: aarch64-apple-darwin
-            os: macos-latest-large
-            binary_name: riptide
-
+    name: Build x86_64-linux
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libdbus-1-dev libglib2.0-dev libchafa-dev
 
-      - name: Install system dependencies (macOS)
-        if: startsWith(matrix.os, 'macos')
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Create archive
+        run: |
+          cd target/x86_64-unknown-linux-gnu/release
+          tar -czf ../../../riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz riptide
+          cd ../../../
+          sha256sum riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz > riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: riptide-${{ github.ref_name }}-x86_64-linux-gnu
+          path: |
+            riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz
+            riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz.sha256
+
+  build-macos-intel:
+    needs: test
+    name: Build x86_64-macos
+    runs-on: macos-13-large
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
         run: |
           brew install chafa
           echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Add target
-        run: rustup target add ${{ matrix.target }}
-
       - uses: Swatinem/rust-cache@v2
 
       - name: Build release
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target x86_64-apple-darwin
 
-      - name: Determine archive name
-        id: archive
+      - name: Create archive
         run: |
-          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
-            ARCHIVE_NAME="riptide-${{ github.ref_name }}-x86_64-linux-gnu"
-          else
-            ARCHIVE_NAME="riptide-${{ github.ref_name }}-${{ matrix.target }}"
-          fi
-          echo "name=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
-
-      - name: Create archive (Unix)
-        run: |
-          cd target/${{ matrix.target }}/release
-          tar -czf ../../../${{ steps.archive.outputs.name }}.tar.gz ${{ matrix.binary_name }}
+          cd target/x86_64-apple-darwin/release
+          tar -czf ../../../riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz riptide
           cd ../../../
-          sha256sum ${{ steps.archive.outputs.name }}.tar.gz > ${{ steps.archive.outputs.name }}.tar.gz.sha256
+          sha256sum riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz > riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz.sha256
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
         with:
-          name: riptide-${{ github.ref_name }}-${{ matrix.target }}
+          name: riptide-${{ github.ref_name }}-x86_64-apple-darwin
           path: |
-            ${{ steps.archive.outputs.name }}.tar.gz
-            ${{ steps.archive.outputs.name }}.tar.gz.sha256
+            riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz
+            riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz.sha256
+
+  build-macos-arm:
+    needs: test
+    name: Build aarch64-macos (native ARM)
+    runs-on: macos-latest-large
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: brew install chafa
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release (native ARM64)
+        run: cargo build --release
+
+      - name: Create archive
+        run: |
+          cd target/release
+          tar -czf ../../riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz riptide
+          cd ../../
+          sha256sum riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz > riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: riptide-${{ github.ref_name }}-aarch64-apple-darwin
+          path: |
+            riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
+            riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz.sha256
 
   create-release:
     name: Create Release
-    needs: build
+    needs: [build-linux, build-macos-intel, build-macos-arm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
