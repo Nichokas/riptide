@@ -204,10 +204,9 @@ fn render_queue(f: &mut Frame, app: &App, area: Rect) {
 
     let current = app.now_playing.queue_index;
     let cursor = app.queue_cursor;
-    let anchor = if focused { cursor } else { current };
     let item_h = 2usize;
     let visible = (content_h as usize).saturating_div(item_h).max(1);
-    let offset = if anchor + 1 > visible { anchor + 1 - visible } else { 0 };
+    let offset = app.queue_scroll_offset(visible);
 
     let mut y = content_y;
     for (i, track) in queue.iter().enumerate().skip(offset) {
@@ -505,7 +504,7 @@ fn render_content(f: &mut Frame, app: &App, area: Rect) {
                 return;
             }
             View::PlaylistDetail(detail) => {
-                render_track_list(f, app, &detail.tracks.items, detail.tracks.selected, true, area, &detail.playlist.title);
+                render_track_list(f, app, &detail.tracks, true, area, &detail.playlist.title);
                 return;
             }
             View::AlbumDetail(detail) => {
@@ -522,8 +521,7 @@ fn render_content(f: &mut Frame, app: &App, area: Rect) {
         Tab::Playlists => render_playlist_list(f, app, area),
         Tab::Favorites => render_track_list(
             f, app,
-            &app.favorites.items,
-            app.favorites.selected,
+            &app.favorites,
             true,
             area,
             "Favorites",
@@ -670,10 +668,9 @@ fn render_artist_list(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(block, area);
 
     let height = inner.height as usize;
-    let items: Vec<ListItem> = visible_artist_items(&app.artists.items, app.artists.selected, height)
+    let items: Vec<ListItem> = visible_artist_items(&app.artists, height)
         .iter()
-        .enumerate()
-        .map(|(_, (abs_idx, artist))| {
+        .map(|(abs_idx, artist)| {
             let selected = *abs_idx == app.artists.selected;
             let style = if selected {
                 Style::default().bg(HIGHLIGHT_BG).fg(Color::White).add_modifier(Modifier::BOLD)
@@ -727,7 +724,7 @@ fn render_fav_albums_list(f: &mut Frame, app: &App, area: Rect) {
 
     let height = inner.height as usize;
     let selected = app.fav_albums.selected;
-    let offset = scroll_offset(selected, height);
+    let offset = app.fav_albums.scroll_offset(height);
 
     let items: Vec<ListItem> = app.fav_albums.items
         .iter()
@@ -963,9 +960,13 @@ fn render_artist_tracks_full(
 
     let inner = area;
 
+    let height = inner.height as usize;
+    let offset = detail.tracks.scroll_offset(height);
     let items: Vec<ListItem> = detail.tracks.items
         .iter()
         .enumerate()
+        .skip(offset)
+        .take(height)
         .map(|(i, track)| {
             let selected = i == detail.tracks.selected && focused;
             let style = if selected {
@@ -1013,9 +1014,13 @@ fn render_artist_albums(
 
     let inner = area;
 
+    let height = inner.height as usize;
+    let offset = detail.albums.scroll_offset(height);
     let items: Vec<ListItem> = detail.albums.items
         .iter()
         .enumerate()
+        .skip(offset)
+        .take(height)
         .map(|(i, album)| {
             let selected = i == detail.albums.selected && focused;
             let style = if selected {
@@ -1063,9 +1068,13 @@ fn render_artist_eps(
 
     let inner = area;
 
+    let height = inner.height as usize;
+    let offset = detail.eps.scroll_offset(height);
     let items: Vec<ListItem> = detail.eps.items
         .iter()
         .enumerate()
+        .skip(offset)
+        .take(height)
         .map(|(i, album)| {
             let selected = i == detail.eps.selected && focused;
             let style = if selected {
@@ -1113,9 +1122,13 @@ fn render_artist_singles(
 
     let inner = area;
 
+    let height = inner.height as usize;
+    let offset = detail.singles.scroll_offset(height);
     let items: Vec<ListItem> = detail.singles.items
         .iter()
         .enumerate()
+        .skip(offset)
+        .take(height)
         .map(|(i, album)| {
             let selected = i == detail.singles.selected && focused;
             let style = if selected {
@@ -1161,7 +1174,7 @@ fn render_playlist_list(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(block, area);
 
     let height = inner.height as usize;
-    let offset = scroll_offset(app.playlists.selected, height);
+    let offset = app.playlists.scroll_offset(height);
     let items: Vec<ListItem> = app.playlists.items
         .iter()
         .enumerate()
@@ -1197,14 +1210,14 @@ fn render_playlist_list(f: &mut Frame, app: &App, area: Rect) {
 fn render_track_list(
     f: &mut Frame,
     app: &App,
-    tracks: &[Track],
-    selected: usize,
+    tracks: &crate::app::StatefulList<Track>,
     focused: bool,
     area: Rect,
     title: &str,
 ) {
+    let selected = tracks.selected;
     let block = Block::default()
-        .title(format!(" {title} ({}) ", tracks.len()))
+        .title(format!(" {title} ({}) ", tracks.items.len()))
         .borders(Borders::TOP)
         .border_style(Style::default().fg(ACCENT));
 
@@ -1212,9 +1225,9 @@ fn render_track_list(
     f.render_widget(block, area);
 
     let height = inner.height as usize;
-    let offset = scroll_offset(selected, height);
+    let offset = tracks.scroll_offset(height);
 
-    let items: Vec<ListItem> = tracks
+    let items: Vec<ListItem> = tracks.items
         .iter()
         .enumerate()
         .skip(offset)
@@ -1349,7 +1362,7 @@ fn render_album_detail(f: &mut Frame, app: &App, detail: &crate::app::AlbumDetai
     } else {
         format!(" Tracks ({}) ", detail.tracks.items.len())
     };
-    render_track_list(f, app, &detail.tracks.items, detail.tracks.selected, true, cols[1], &title);
+    render_track_list(f, app, &detail.tracks, true, cols[1], &title);
 }
 
 // ── Search results (three-pane layout) ───────────────────────────────────────
@@ -1450,7 +1463,7 @@ fn render_search_pane_tracks(f: &mut Frame, app: &App, area: Rect) {
 
     let sel = app.search.track_sel;
     let height = inner.height as usize;
-    let offset = scroll_offset(sel, height);
+    let offset = app.search.track_scroll_offset(height);
     let items: Vec<ListItem> = app.search.tracks
         .iter()
         .enumerate()
@@ -1504,7 +1517,7 @@ fn render_search_pane_artists(f: &mut Frame, app: &App, area: Rect) {
 
     let sel = app.search.artist_sel;
     let height = inner.height as usize;
-    let offset = scroll_offset(sel, height);
+    let offset = app.search.artist_scroll_offset(height);
     let items: Vec<ListItem> = app.search.artists
         .iter()
         .enumerate()
@@ -1544,7 +1557,7 @@ fn render_search_pane_playlists(f: &mut Frame, app: &App, area: Rect) {
 
     let sel = app.search.playlist_sel;
     let height = inner.height as usize;
-    let offset = scroll_offset(sel, height);
+    let offset = app.search.playlist_scroll_offset(height);
     let items: Vec<ListItem> = app.search.playlists
         .iter()
         .enumerate()
@@ -1798,21 +1811,12 @@ fn render_toast(f: &mut Frame, app: &App, area: Rect) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-fn scroll_offset(selected: usize, height: usize) -> usize {
-    if height == 0 || selected < height {
-        0
-    } else {
-        selected - height + 1
-    }
-}
-
-fn visible_artist_items<'a>(
-    items: &'a [crate::api::models::Artist],
-    selected: usize,
+fn visible_artist_items(
+    list: &crate::app::StatefulList<crate::api::models::Artist>,
     height: usize,
-) -> Vec<(usize, &'a crate::api::models::Artist)> {
-    let offset = scroll_offset(selected, height);
-    items
+) -> Vec<(usize, &crate::api::models::Artist)> {
+    let offset = list.scroll_offset(height);
+    list.items
         .iter()
         .enumerate()
         .skip(offset)

@@ -45,6 +45,7 @@ pub struct App {
 
     pub queue_focused: bool,
     pub queue_cursor:  usize,
+    queue_viewport: ListViewport,
 
     pub help_active: bool,
     pub help_scroll: u16,
@@ -89,6 +90,7 @@ impl App {
             now_playing:  NowPlaying::default(),
             queue_focused: false,
             queue_cursor:  0,
+            queue_viewport: ListViewport::default(),
             help_active: false,
             help_scroll: 0,
             tick:   0,
@@ -104,6 +106,16 @@ impl App {
         app.load_playlists();
         app.load_favorites();
         app
+    }
+
+    pub fn queue_scroll_offset(&self, height: usize) -> usize {
+        let selected = if self.queue_focused {
+            self.queue_cursor
+        } else {
+            self.now_playing.queue_index
+        };
+        self.queue_viewport
+            .offset(selected, self.now_playing.queue.len(), height)
     }
 
     pub fn tick(&mut self) {

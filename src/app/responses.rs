@@ -251,6 +251,7 @@ impl App {
                 self.search.track_sel = 0;
                 self.search.artist_sel = 0;
                 self.search.playlist_sel = 0;
+                self.search.reset_viewports();
                 self.search.pane = SearchPane::Tracks;
             }
 
