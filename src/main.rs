@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 mod api;
 mod app;
 mod events;
+mod lastfm;
 mod manifest;
 mod mpris;
 mod player;
@@ -20,8 +21,15 @@ mod ui;
 
 use api::ApiWorker;
 use app::App;
+use lastfm::auth as lastfm_auth_module;
 use mpris::MprisServer;
 use player::PlayerWorker;
+
+fn lastfm_auth() -> Result<()> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(lastfm_auth_module::authenticate())?;
+    Ok(())
+}
 
 fn setup_panic_hook() {
     let original = std::panic::take_hook();
@@ -37,9 +45,15 @@ fn setup_panic_hook() {
 }
 
 fn main() -> Result<()> {
-    if std::env::args().any(|a| a == "--version" || a == "-V") {
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
+    }
+
+    if args.iter().any(|a| a == "--lastfm-auth") {
+        return lastfm_auth();
     }
 
     setup_panic_hook();
@@ -73,10 +87,15 @@ fn main() -> Result<()> {
     let (api_resp_tx, api_resp_rx) = mpsc::unbounded_channel();
     let (player_cmd_tx, player_cmd_rx) = mpsc::unbounded_channel::<crate::player::PlayerCmd>();
     let (player_evt_tx, player_evt_rx) = mpsc::unbounded_channel();
+    let (player_evt_lastfm_tx, player_evt_lastfm_rx) = mpsc::unbounded_channel();
 
     // Channels for MPRIS: TUI → MPRIS server (state updates) and MPRIS → TUI (control commands)
     let (mpris_state_tx, mpris_state_rx) = tokio::sync::watch::channel(mpris::MprisState::default());
     let (mpris_cmd_tx, mpris_cmd_rx) = mpsc::unbounded_channel::<mpris::MprisCmd>();
+
+    // Channels for Last.fm worker: TUI → Last.fm and Last.fm → TUI
+    let (lastfm_cmd_tx, lastfm_cmd_rx) = mpsc::unbounded_channel::<lastfm::LastfmCmd>();
+    let (_lastfm_evt_tx, _lastfm_evt_rx) = mpsc::unbounded_channel::<lastfm::LastfmEvent>();
 
     // Spawn async workers on a dedicated Tokio thread.
     // We keep the handle so we can join it on exit and let PlayerWorker kill mpv cleanly.
@@ -84,11 +103,22 @@ fn main() -> Result<()> {
     let worker_thread = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         rt.block_on(async move {
-            let api_worker = ApiWorker::new(worker_config, api_req_rx, api_resp_tx);
+            let api_worker = ApiWorker::new(worker_config.clone(), api_req_rx, api_resp_tx);
             let player_worker = PlayerWorker::new(player_cmd_rx, player_evt_tx);
             let mpris_server = MprisServer::new(mpris_state_rx, mpris_cmd_tx);
+            let lastfm_worker = lastfm::worker::LastfmWorker::new(
+                worker_config.lastfm,
+                lastfm_cmd_rx,
+                player_evt_lastfm_rx,
+                _lastfm_evt_tx,
+            );
             tokio::spawn(manifest::run_server());
-            tokio::join!(api_worker.run(), player_worker.run(), mpris_server.run());
+            tokio::join!(
+                api_worker.run(),
+                player_worker.run(),
+                mpris_server.run(),
+                lastfm_worker.run()
+            );
         });
     });
 
@@ -100,8 +130,15 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Build app state and run
-    let mut app = App::new(api_req_tx, player_cmd_tx, mpris_state_tx);
-    let result = events::run_app(&mut terminal, &mut app, api_resp_rx, player_evt_rx, mpris_cmd_rx);
+    let mut app = App::new(api_req_tx, player_cmd_tx, mpris_state_tx, lastfm_cmd_tx);
+    let result = events::run_app(
+        &mut terminal,
+        &mut app,
+        api_resp_rx,
+        player_evt_rx,
+        mpris_cmd_rx,
+        player_evt_lastfm_tx,
+    );
 
     // Restore terminal unconditionally
     disable_raw_mode()?;

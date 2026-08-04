@@ -318,4 +318,7 @@ pub struct Config {
     pub country_code: String,
     /// Tidal session UUID — required as `sessionId` query param on all v1 requests.
     pub session_id: Option<String>,
+    /// Last.fm scrobbling configuration
+    #[serde(default)]
+    pub lastfm: crate::lastfm::LastfmConfig,
 }

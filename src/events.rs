@@ -16,6 +16,7 @@ pub fn run_app(
     mut api_rx: mpsc::UnboundedReceiver<ApiResponse>,
     mut player_rx: mpsc::UnboundedReceiver<PlayerEvent>,
     mut mpris_rx: mpsc::UnboundedReceiver<MprisCmd>,
+    lastfm_evt_tx: mpsc::UnboundedSender<PlayerEvent>,
 ) -> anyhow::Result<()> {
     loop {
         terminal.draw(|f| crate::ui::draw(f, app))?;
@@ -25,8 +26,9 @@ pub fn run_app(
             app.handle_api_response(resp);
         }
 
-        // Drain player events
+        // Drain player events and forward to Last.fm
         while let Ok(evt) = player_rx.try_recv() {
+            let _ = lastfm_evt_tx.send(evt.clone());
             app.handle_player_event(evt);
         }
 

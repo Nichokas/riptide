@@ -13,6 +13,7 @@ pub use state::*;
 use tokio::sync::{mpsc, watch};
 use crate::api::ApiRequest;
 use crate::api::models::{Album, Artist, Playlist, Track};
+use crate::lastfm::LastfmCmd;
 use crate::mpris::MprisState;
 use crate::player::PlayerCmd;
 
@@ -50,6 +51,7 @@ pub struct App {
     pub api_tx:    mpsc::UnboundedSender<ApiRequest>,
     pub player_tx: mpsc::UnboundedSender<PlayerCmd>,
     pub mpris_tx:  watch::Sender<MprisState>,
+    pub lastfm_tx: mpsc::UnboundedSender<LastfmCmd>,
 }
 
 impl App {
@@ -57,6 +59,7 @@ impl App {
         api_tx:    mpsc::UnboundedSender<ApiRequest>,
         player_tx: mpsc::UnboundedSender<PlayerCmd>,
         mpris_tx:  watch::Sender<MprisState>,
+        lastfm_tx: mpsc::UnboundedSender<LastfmCmd>,
     ) -> Self {
         let mut app = Self {
             should_quit: false,
@@ -84,6 +87,7 @@ impl App {
             api_tx,
             player_tx,
             mpris_tx,
+            lastfm_tx,
         };
         app.load_artists();
         app.load_fav_albums();

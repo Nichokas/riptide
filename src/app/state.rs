@@ -325,6 +325,8 @@ pub struct NowPlaying {
     pub source_playlist_next_offset: u32,
     /// Saved queue order before shuffling; restored when shuffle is toggled off.
     pub original_queue: Vec<Track>,
+    /// Whether this track has been sent to Last.fm for scrobbling
+    pub lastfm_sent: bool,
 }
 
 impl Default for NowPlaying {
@@ -349,6 +351,7 @@ impl Default for NowPlaying {
             source_playlist_uuid: None,
             source_playlist_next_offset: 0,
             original_queue: Vec::new(),
+            lastfm_sent: false,
         }
     }
 }
@@ -422,7 +425,7 @@ impl KeybindGroup {
                 Keybind { key: "q", action: "Quit" },
                 Keybind { key: "/", action: "Command palette" },
                 Keybind { key: "Tab", action: "Next tab" },
-                Keybind { key: "Shift+Tab (BackTab)", action: "Previous tab" },
+                Keybind { key: "Shift+Tab", action: "Previous tab" },
                 Keybind { key: "Space", action: "Play/Pause" },
                 Keybind { key: "n", action: "Next track" },
                 Keybind { key: "p", action: "Previous track" },

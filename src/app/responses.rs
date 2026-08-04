@@ -325,6 +325,7 @@ impl App {
                 self.now_playing.paused = false;
                 self.now_playing.sample_rate = None;
                 self.now_playing.codec = None;
+                self.now_playing.lastfm_sent = false;
                 if let Some(track) = &self.now_playing.track {
                     let title = format!("{} — {}", track.artist_name(), track.title);
                     let _ = self.player_tx.send(PlayerCmd::SetMediaTitle(title));
@@ -355,8 +356,40 @@ impl App {
                     self.push_mpris_state();
                 }
             }
-            PlayerEvent::Duration(d)  => { self.now_playing.duration = d; }
+            PlayerEvent::Duration(d)  => {
+                self.now_playing.duration = d;
+                // Send track to Last.fm once when we first learn the duration
+                if !self.now_playing.lastfm_sent && d > 0.0 {
+                    if let Some(track) = &self.now_playing.track {
+                        let artist_names = if !track.artists.is_empty() {
+                            track.artists.iter().map(|a| a.name.clone()).collect::<Vec<_>>().join(", ")
+                        } else if let Some(ref artist) = track.artist {
+                            artist.name.clone()
+                        } else {
+                            "Unknown".to_string()
+                        };
+                        let album = Some(track.album.title.clone());
+
+                        let _ = self.lastfm_tx.send(crate::lastfm::LastfmCmd::UpdatePlayingTrack {
+                            track_id: track.id,
+                            artist: artist_names,
+                            track_name: track.title.clone(),
+                            album,
+                            duration: d,
+                        });
+                        self.now_playing.lastfm_sent = true;
+                    }
+                }
+            }
             PlayerEvent::Paused(p)    => {
+                // Only send pause/resume command if state actually changed
+                if self.now_playing.paused != p {
+                    if p {
+                        let _ = self.lastfm_tx.send(crate::lastfm::LastfmCmd::Pause);
+                    } else {
+                        let _ = self.lastfm_tx.send(crate::lastfm::LastfmCmd::Resume);
+                    }
+                }
                 self.now_playing.paused = p;
                 self.push_mpris_state();
             }

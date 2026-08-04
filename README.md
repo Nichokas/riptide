@@ -12,6 +12,7 @@
   - [Nix](#nix)
 - [Setup](#setup)
 - [Configuration](#configuration)
+- [Last.fm Scrobbling](#lastfm-scrobbling)
 - [Keybindings](#keybindings)
 - [Image Rendering](#image-rendering)
 - [Logging](#logging)
@@ -214,66 +215,122 @@ Riptide ships with built-in fallback credentials (provided by the open-source [t
 
 3. Delete `access_token` and `refresh_token` from the file (or delete the file entirely) to trigger a fresh login with your credentials.
 
+## Last.fm Scrobbling
+
+Riptide can automatically scrobble your plays to Last.fm. To enable scrobbling:
+
+### Setup
+
+1. **Create a Last.fm account** (free at [last.fm](https://www.last.fm))
+2. **Register an API account** at [https://www.last.fm/api/account/create](https://www.last.fm/api/account/create) to get your API key and secret
+   1. You don't need to provide a description, callback URL, or application homepage to get your key.
+3. **Add credentials to your config** (`~/.config/riptide/config.json`):
+   ```json
+   "lastfm": {
+     "api_key": "your-api-key-here",
+     "api_secret": "your-api-secret-here"
+   }
+   ```
+4. **Authorize Riptide** by running:
+   ```bash
+   cargo run -- --lastfm-auth
+   ```
+   Or if riptide is installed: `riptide --lastfm-auth`
+5. **Open the URL** shown in your terminal and authorize Riptide
+6. Riptide will automatically save your session key and enable scrobbling
+
+### Scrobbling Behavior
+
+- Tracks are scrobbled after you've listened for **30 seconds OR 30% of the track duration** (whichever comes first)
+- Paused time does not count toward scrobbling
+- You can disable scrobbling by setting `"enabled": false` in the `lastfm` section of your config
+- View your scrobbles at https://www.last.fm/user/YOUR_USERNAME
+
+### Custom Scrobble Thresholds
+
+You can customize when tracks are scrobbled by adding `min_seconds` and `min_percent` to your Last.fm config:
+
+```json
+"lastfm": {
+  "username": "your_username",
+  "session_key": "...",
+  "api_key": "...",
+  "api_secret": "...",
+  "enabled": true,
+  "min_seconds": 45,
+  "min_percent": 50
+}
+```
+
+- `min_seconds`: Minimum seconds to play before scrobbling (default: 30, minimum enforced: 30)
+- `min_percent`: Minimum percentage of track to play before scrobbling (default: 30, minimum enforced: 30)
+
+The actual threshold used is whichever is **less** between the two values. For example, with the settings above:
+- A 3-minute (180s) song: min(90s, 45s) = 45 seconds
+- A 2-minute (120s) song: min(60s, 45s) = 45 seconds  
+- A 10-second song: min(5s, 45s) = 5 seconds (no minimum enforced for very short tracks)
+
 ## Keybindings
 
 Press `?` in the player to view all keybinds. Here's the complete reference:
 
 ### Global
 
-| Key       | Action           |
-| --------- | ---------------- |
-| `?`       | Show this help   |
-| `q`       | Quit             |
-| `/`       | Command palette  |
-| `Tab`     | Next tab         |
-| `Space`   | Play/Pause       |
-| `n`       | Next track       |
-| `p`       | Previous track   |
-| `z`       | Toggle shuffle   |
-| `+ or =`  | Volume Up        |
-| `-`       | Volume Down      |
-| `Esc`     | Back/Go up       |
+| Key         | Action          |
+|-------------|-----------------|
+| `?`         | Show this help  |
+| `q`         | Quit            |
+| `/`         | Command palette |
+| `Tab`       | Next tab        |
+| `Shift+Tab` | Previous tab    |
+| `Space`     | Play/Pause      |
+| `n`         | Next track      |
+| `p`         | Previous track  |
+| `z`         | Toggle shuffle  |
+| `+ or =`    | Volume Up       |
+| `-`         | Volume Down     |
+| `Esc`       | Back/Go up      |
 
 ### Navigation
 
-| Key     | Action                          |
-| ------- | ------------------------------- |
-| `↑`     | Up                              |
-| `↓`     | Down                            |
-| `Enter` | Select/Open                     |
-| `a`     | Add to queue                    |
-| `f`     | Toggle favorite/follow/save     |
-| `g`     | Go to artist                    |
-| `s`     | Sort                            |
-| `r`     | Start radio                     |
-| `c`     | Copy share link (song)          |
-| `C`     | Copy share link (album/playlist)|
-| `→`     | Focus queue                     |
+| Key     | Action                           |
+|---------|----------------------------------|
+| `↑`     | Up                               |
+| `↓`     | Down                             |
+| `Enter` | Select/Open                      |
+| `a`     | Add to queue                     |
+| `f`     | Toggle favorite/follow/save      |
+| `g`     | Go to artist                     |
+| `s`     | Sort                             |
+| `r`     | Start radio                      |
+| `c`     | Copy share link (song)           |
+| `C`     | Copy share link (album/playlist) |
+| `→`     | Focus queue                      |
 
 ### Queue
 
-| Key     | Action          |
-| ------- | --------------- |
-| `↑`     | Up              |
-| `↓`     | Down            |
-| `d`     | Remove track    |
-| `c`     | Copy share link (song)          |
-| `C`     | Copy share link (album)         |
-| `Enter` | Play track      |
-| `Esc`   | Close queue     |
+| Key     | Action                  |
+|---------|-------------------------|
+| `↑`     | Up                      |
+| `↓`     | Down                    |
+| `d`     | Remove track            |
+| `c`     | Copy share link (song)  |
+| `C`     | Copy share link (album) |
+| `Enter` | Play track              |
+| `Esc`   | Close queue             |
 
 ### Search
 
 Open search with `/` → `search` or via command palette.
 
-| Key       | Action      |
-| --------- | ----------- |
-| `↑`       | Up          |
-| `↓`       | Down        |
-| `Tab`     | Next pane   |
-| `Shift+Tab` | Prev pane |
-| `Enter`   | Select/Open |
-| `Esc`     | Close       |
+| Key         | Action       |
+|-------------|--------------|
+| `↑`         | Up           |
+| `↓`         | Down         |
+| `Tab`       | Next pane    |
+| `Shift+Tab` | Prev pane    |
+| `Enter`     | Select/Open  |
+| `Esc`       | Close search |
 
 ### Command Palette
 

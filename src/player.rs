@@ -23,7 +23,7 @@ pub enum PlayerCmd {
     ChangeVolume(i8),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PlayerEvent {
     TrackStarted,
     TrackEnded,
