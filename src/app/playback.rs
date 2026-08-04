@@ -332,7 +332,8 @@ mod tests {
         let (api_tx, _)    = tokio::sync::mpsc::unbounded_channel();
         let (player_tx, _) = tokio::sync::mpsc::unbounded_channel();
         let (mpris_tx, _)  = tokio::sync::watch::channel(MprisState::default());
-        App::new(api_tx, player_tx, mpris_tx)
+        let (lastfm_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        App::new(api_tx, player_tx, mpris_tx, lastfm_tx)
     }
 
     // ── Shuffle ───────────────────────────────────────────────────────────────
