@@ -118,6 +118,16 @@ impl App {
             .offset(selected, self.now_playing.queue.len(), height)
     }
 
+    pub fn queue_page_up(&mut self) {
+        self.queue_cursor = self.queue_viewport
+            .previous_page(self.queue_cursor, self.now_playing.queue.len());
+    }
+
+    pub fn queue_page_down(&mut self) {
+        self.queue_cursor = self.queue_viewport
+            .next_page(self.queue_cursor, self.now_playing.queue.len());
+    }
+
     pub fn tick(&mut self) {
         self.tick = self.tick.wrapping_add(1);
         // ~5 s at 16 ms/tick = 312 ticks

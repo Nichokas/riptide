@@ -363,6 +363,26 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
                         }
                         return;
                     }
+                    KeyCode::PageUp => {
+                        match detail.focus {
+                            ArtistDetailFocus::Tracks => detail.tracks.page_up(),
+                            ArtistDetailFocus::Albums => detail.albums.page_up(),
+                            ArtistDetailFocus::EPs => detail.eps.page_up(),
+                            ArtistDetailFocus::Singles => detail.singles.page_up(),
+                            ArtistDetailFocus::Bio => {}
+                        }
+                        return;
+                    }
+                    KeyCode::PageDown => {
+                        match detail.focus {
+                            ArtistDetailFocus::Tracks => detail.tracks.page_down(),
+                            ArtistDetailFocus::Albums => detail.albums.page_down(),
+                            ArtistDetailFocus::EPs => detail.eps.page_down(),
+                            ArtistDetailFocus::Singles => detail.singles.page_down(),
+                            ArtistDetailFocus::Bio => {}
+                        }
+                        return;
+                    }
                     KeyCode::Left | KeyCode::Char('h') => {
                         detail.focus = match detail.focus {
                             ArtistDetailFocus::Tracks => ArtistDetailFocus::Bio,
@@ -485,6 +505,8 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
                 match key.code {
                     KeyCode::Up => { detail.tracks.prev(); return; }
                     KeyCode::Down => { detail.tracks.next(); return; }
+                    KeyCode::PageUp => { detail.tracks.page_up(); return; }
+                    KeyCode::PageDown => { detail.tracks.page_down(); return; }
                     KeyCode::Right | KeyCode::Char('l') => Action::FocusQueue,
                     KeyCode::Enter => {
                         let idx = detail.tracks.selected;
@@ -524,6 +546,8 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
                 match key.code {
                     KeyCode::Up => { detail.tracks.prev(); return; }
                     KeyCode::Down => { detail.tracks.next(); return; }
+                    KeyCode::PageUp => { detail.tracks.page_up(); return; }
+                    KeyCode::PageDown => { detail.tracks.page_down(); return; }
                     KeyCode::Right | KeyCode::Char('l') => Action::FocusQueue,
                     KeyCode::Enter => {
                         let idx = detail.tracks.selected;
@@ -615,6 +639,22 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
                 }
             }
             Tab::Search => app.search.pane_next(),
+        },
+        KeyCode::PageUp => match app.current_tab {
+            Tab::Home => {}
+            Tab::Artists => app.artists.page_up(),
+            Tab::Albums => app.fav_albums.page_up(),
+            Tab::Playlists => app.playlists.page_up(),
+            Tab::Favorites => app.favorites.page_up(),
+            Tab::Search => app.search.pane_page_up(),
+        },
+        KeyCode::PageDown => match app.current_tab {
+            Tab::Home => {}
+            Tab::Artists => app.artists.page_down(),
+            Tab::Albums => app.fav_albums.page_down(),
+            Tab::Playlists => app.playlists.page_down(),
+            Tab::Favorites => app.favorites.page_down(),
+            Tab::Search => app.search.pane_page_down(),
         },
         KeyCode::Left | KeyCode::Char('h') if app.current_tab == Tab::Home => {
             use crate::app::HomeSectionFocus;
@@ -874,6 +914,8 @@ fn handle_queue_input(app: &mut App, key: KeyEvent) {
                 app.queue_cursor += 1;
             }
         }
+        KeyCode::PageUp => app.queue_page_up(),
+        KeyCode::PageDown => app.queue_page_down(),
         KeyCode::Enter => {
             let cursor = app.queue_cursor;
             app.play_from_queue(cursor);
