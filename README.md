@@ -102,6 +102,9 @@ sha256sum -c SHA256SUMS
 
 ### Arch (AUR)
 
+> [!WARNING]
+> The AUR team has recently [disabled all pushes](https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/message/YPJ3FQYJTJXXY3RUXCYLMHUKHLIUNVFF/). As such, the current version on the AUR is behind by several releases. The current recommended installation method for all users is to use [the automated install script](#automated-install). If you previously installed Riptide from AUR, remove it with `paru/yay -R riptide` before using the automated installer.
+
 Riptide is available on the AUR and can be installed with:
 
 ```bash
