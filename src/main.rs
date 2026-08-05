@@ -67,7 +67,7 @@ fn main() -> Result<()> {
 
         let log_level = std::env::var("RIPTIDE_LOG_LEVEL")
             .or_else(|_| std::env::var("RUST_LOG"))
-            .unwrap_or_else(|_| "info".to_string());
+            .unwrap_or_else(|_| "riptide=debug,warn".to_string());
         let env_filter = tracing_subscriber::EnvFilter::new(&log_level);
 
         let _ = tracing_subscriber::fmt()

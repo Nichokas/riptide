@@ -29,6 +29,7 @@ pub enum ApiRequest {
     FetchAlbumArt { album_id: u64, cover_id: String },
     FetchArtistArt { artist_id: u64, picture_id: String },
     LoadPlaylistTracks { uuid: String, offset: u32 },
+    LoadMixTracks { uuid: String, offset: u32 },
     Search { query: String },
     ResolveStreamUrl { track_id: u64 },
     FetchLyrics { track_id: u64 },
@@ -43,6 +44,9 @@ pub enum ApiRequest {
     TrackRadio { track_id: u64 },
     ArtistRadio { artist_id: u64 },
     SearchArtists { query: String },
+    LoadDailyMixes,
+    LoadDiscoveryMixes,
+    LoadNewReleases,
 }
 
 #[derive(Debug)]
@@ -80,6 +84,9 @@ pub enum ApiResponse {
     PlaylistRemoved { uuid: String },
     RadioTracks { tracks: Vec<Track> },
     SearchedArtists(Vec<Artist>),
+    DailyMixes(Vec<Playlist>),
+    DiscoveryMixes(Vec<Playlist>),
+    NewReleases(Vec<Playlist>),
     Error(String),
 }
 
@@ -272,6 +279,17 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             }
         }
 
+        ApiRequest::LoadMixTracks { uuid, offset } => {
+            match client.get_mix_tracks(&uuid, offset).await {
+                Ok((tracks, total)) => ApiResponse::PlaylistTracks {
+                    uuid,
+                    tracks,
+                    total,
+                },
+                Err(e) => ApiResponse::Error(e.to_string()),
+            }
+        }
+
         ApiRequest::Search { query } => match client.search(&query, 20).await {
             Ok(results) => ApiResponse::SearchResults(Box::new(results)),
             Err(e) => ApiResponse::Error(e.to_string()),
@@ -337,6 +355,21 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         ApiRequest::SearchArtists { query } => match client.search_artists(&query, 10).await {
             Ok(artists) => ApiResponse::SearchedArtists(artists),
             Err(e) => ApiResponse::Error(format!("search artists: {e}")),
+        },
+
+        ApiRequest::LoadDailyMixes => match client.get_daily_mixes().await {
+            Ok(playlists) => ApiResponse::DailyMixes(playlists),
+            Err(e) => ApiResponse::Error(format!("daily mixes: {e}")),
+        },
+
+        ApiRequest::LoadDiscoveryMixes => match client.get_discovery_mixes().await {
+            Ok(playlists) => ApiResponse::DiscoveryMixes(playlists),
+            Err(e) => ApiResponse::Error(format!("discovery mixes: {e}")),
+        },
+
+        ApiRequest::LoadNewReleases => match client.get_new_release_mixes().await {
+            Ok(playlists) => ApiResponse::NewReleases(playlists),
+            Err(e) => ApiResponse::Error(format!("new releases: {e}")),
         },
 
         ApiRequest::FetchLyrics { track_id } => {

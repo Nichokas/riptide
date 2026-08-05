@@ -7,18 +7,20 @@ use crate::api::models::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
+    Home,
+    Favorites,
     Artists,
     Albums,
     Playlists,
-    Favorites,
     Search,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 5] = [Tab::Favorites, Tab::Artists, Tab::Albums, Tab::Playlists, Tab::Search];
+    pub const ALL: [Tab; 6] = [Tab::Home, Tab::Favorites, Tab::Artists, Tab::Albums, Tab::Playlists, Tab::Search];
 
     pub fn title(self) -> &'static str {
         match self {
+            Tab::Home      => "Home",
             Tab::Favorites => "Favorites",
             Tab::Artists   => "Artists",
             Tab::Albums    => "Albums",
@@ -37,6 +39,7 @@ pub struct StatefulList<T> {
     pub exhausted: bool,
     pub next_offset: u32,
     pub total: u32,
+    pub last_load_triggered_at: usize,
 }
 
 impl<T> Default for StatefulList<T> {
@@ -48,6 +51,7 @@ impl<T> Default for StatefulList<T> {
             exhausted: false,
             next_offset: 0,
             total: 0,
+            last_load_triggered_at: 0,
         }
     }
 }
@@ -70,7 +74,8 @@ impl<T> StatefulList<T> {
         !self.loading
             && !self.exhausted
             && !self.items.is_empty()
-            && self.selected + 10 >= self.items.len()
+            && self.selected >= self.items.len().saturating_sub(2)
+            && self.items.len() > self.last_load_triggered_at
     }
 
     pub fn append(&mut self, new_items: Vec<T>, total: u32) {
@@ -112,6 +117,54 @@ pub struct ArtistDetail {
 pub struct PlaylistDetail {
     pub playlist: Playlist,
     pub tracks: StatefulList<Track>,
+}
+
+// ── Home tab ──────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HomeSectionFocus {
+    NewReleases,
+    DailyMixes,
+    DiscoveryMixes,
+}
+
+impl Default for HomeSectionFocus {
+    fn default() -> Self {
+        Self::NewReleases
+    }
+}
+
+pub struct HomeSection<T> {
+    pub items: Vec<T>,
+    pub selected: usize,
+    pub loading: bool,
+    pub error: Option<String>,
+}
+
+impl<T> Default for HomeSection<T> {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            selected: 0,
+            loading: false,
+            error: None,
+        }
+    }
+}
+
+impl<T> HomeSection<T> {
+    pub fn next(&mut self) {
+        if self.items.is_empty() { return; }
+        self.selected = (self.selected + 1).min(self.items.len() - 1);
+    }
+
+    pub fn prev(&mut self) {
+        if self.selected > 0 { self.selected -= 1; }
+    }
+
+    pub fn selected_item(&self) -> Option<&T> {
+        self.items.get(self.selected)
+    }
 }
 
 // ── Album detail / art payload ────────────────────────────────────────────────
@@ -243,6 +296,7 @@ impl Default for SortPalette {
 impl SortPalette {
     pub fn get_options(current_tab: Tab) -> &'static [(&'static str, SortField)] {
         match current_tab {
+            Tab::Home => &[],
             Tab::Artists | Tab::Playlists => &[
                 ("Alphabetical", SortField::Alphabetical),
                 ("Last Added",   SortField::LastAdded)
@@ -288,7 +342,7 @@ impl Default for CommandState {
 
 impl CommandState {
     pub const COMMANDS: &'static [&'static str] =
-        &["favorites", "artists", "albums", "playlists", "search"];
+        &["home", "favorites", "artists", "albums", "playlists", "search"];
 
     pub fn matches(&self) -> Vec<&'static str> {
         let q = self.input.to_lowercase();
@@ -593,10 +647,10 @@ mod tests {
     fn stateful_list_should_load_more_triggers_near_end() {
         let mut list: StatefulList<u32> = StatefulList::default();
         list.append((0..20u32).collect(), 100);
-        // selected + 10 >= items.len() → triggers at selected == 10
-        list.selected = 10;
+        // triggers when selected >= items.len() - 2 → at selected == 18
+        list.selected = 18;
         assert!(list.should_load_more());
-        list.selected = 9;
+        list.selected = 17;
         assert!(!list.should_load_more());
     }
 

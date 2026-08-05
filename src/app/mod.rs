@@ -24,6 +24,11 @@ pub struct App {
     pub current_tab: Tab,
     pub view_stack: Vec<View>,
 
+    pub home_new_releases: HomeSection<Playlist>,
+    pub home_daily_mixes: HomeSection<Playlist>,
+    pub home_discovery_mixes: HomeSection<Playlist>,
+    pub home_section_focus: HomeSectionFocus,
+
     pub artists:   StatefulList<Artist>,
     pub fav_albums: StatefulList<Album>,
     pub playlists: StatefulList<Playlist>,
@@ -63,8 +68,12 @@ impl App {
     ) -> Self {
         let mut app = Self {
             should_quit: false,
-            current_tab: Tab::Favorites,
+            current_tab: Tab::Home,
             view_stack:  Vec::new(),
+            home_new_releases: HomeSection::default(),
+            home_daily_mixes: HomeSection::default(),
+            home_discovery_mixes: HomeSection::default(),
+            home_section_focus: HomeSectionFocus::default(),
             artists:     StatefulList::default(),
             fav_albums:  StatefulList::default(),
             playlists:   StatefulList::default(),
@@ -89,6 +98,7 @@ impl App {
             mpris_tx,
             lastfm_tx,
         };
+        app.load_home();
         app.load_artists();
         app.load_fav_albums();
         app.load_playlists();

@@ -233,6 +233,10 @@ fn execute_command(app: &mut App, cmd: &str) {
         if leaving_artist(app) { kitty_delete_artist_art(); }
     };
     match cmd {
+        "home" => {
+            cleanup(app);
+            app.set_tab(Tab::Home);
+        }
         "favorites" => {
             cleanup(app);
             app.set_tab(Tab::Favorites);
@@ -578,6 +582,14 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
     // Top-level tab navigation (no active detail view)
     match key.code {
         KeyCode::Up => match app.current_tab {
+            Tab::Home => {
+                use crate::app::HomeSectionFocus;
+                match app.home_section_focus {
+                    HomeSectionFocus::NewReleases => app.home_new_releases.prev(),
+                    HomeSectionFocus::DailyMixes => app.home_daily_mixes.prev(),
+                    HomeSectionFocus::DiscoveryMixes => app.home_discovery_mixes.prev(),
+                }
+            }
             Tab::Artists => app.artists.prev(),
             Tab::Albums => app.fav_albums.prev(),
             Tab::Playlists => app.playlists.prev(),
@@ -585,22 +597,52 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
             Tab::Search => app.search.pane_prev(),
         },
         KeyCode::Down => match app.current_tab {
+            Tab::Home => {
+                use crate::app::HomeSectionFocus;
+                match app.home_section_focus {
+                    HomeSectionFocus::NewReleases => app.home_new_releases.next(),
+                    HomeSectionFocus::DailyMixes => app.home_daily_mixes.next(),
+                    HomeSectionFocus::DiscoveryMixes => app.home_discovery_mixes.next(),
+                }
+            }
             Tab::Artists => app.artists.next(),
             Tab::Albums => app.fav_albums.next(),
             Tab::Playlists => app.playlists.next(),
-            Tab::Favorites => app.favorites.next(),
+            Tab::Favorites => {
+                app.favorites.next();
+                if app.favorites.should_load_more() {
+                    app.load_favorites();
+                }
+            }
             Tab::Search => app.search.pane_next(),
         },
+        KeyCode::Left | KeyCode::Char('h') if app.current_tab == Tab::Home => {
+            use crate::app::HomeSectionFocus;
+            app.home_section_focus = match app.home_section_focus {
+                HomeSectionFocus::NewReleases => HomeSectionFocus::DiscoveryMixes,
+                HomeSectionFocus::DailyMixes => HomeSectionFocus::NewReleases,
+                HomeSectionFocus::DiscoveryMixes => HomeSectionFocus::DailyMixes,
+            };
+        }
         KeyCode::Left | KeyCode::Char('h') if app.current_tab == Tab::Search => {
             app.search.prev_pane();
+        }
+        KeyCode::Right | KeyCode::Char('l') if app.current_tab == Tab::Home => {
+            use crate::app::HomeSectionFocus;
+            app.home_section_focus = match app.home_section_focus {
+                HomeSectionFocus::NewReleases => HomeSectionFocus::DailyMixes,
+                HomeSectionFocus::DailyMixes => HomeSectionFocus::DiscoveryMixes,
+                HomeSectionFocus::DiscoveryMixes => HomeSectionFocus::NewReleases,
+            };
         }
         KeyCode::Right | KeyCode::Char('l') if app.current_tab == Tab::Search => {
             app.search.next_pane();
         }
-        KeyCode::Right | KeyCode::Char('l') if app.current_tab != Tab::Search => {
+        KeyCode::Right | KeyCode::Char('l') if app.current_tab != Tab::Search && app.current_tab != Tab::Home => {
             app.focus_queue();
         }
         KeyCode::Enter => match app.current_tab {
+            Tab::Home => app.open_selected_home_item(),
             Tab::Artists => app.open_selected_artist(),
             Tab::Albums => app.open_selected_fav_album(),
             Tab::Playlists => app.open_selected_playlist(),
