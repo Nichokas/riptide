@@ -2,6 +2,7 @@
 // Copyright (C) 2025 Ryan Cohan
 
 use crate::api::models::*;
+use std::cell::Cell;
 
 // ── Tab ───────────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,62 @@ pub struct StatefulList<T> {
     pub next_offset: u32,
     pub total: u32,
     pub last_load_triggered_at: usize,
+    viewport: ListViewport,
+}
+
+#[derive(Default)]
+pub(super) struct ListViewport {
+    offset: Cell<usize>,
+    capacity: Cell<usize>,
+}
+
+impl ListViewport {
+    /// Keep `selected` visible while preserving the current window until the
+    /// cursor crosses one of its edges.
+    pub fn offset(&self, selected: usize, len: usize, height: usize) -> usize {
+        self.capacity.set(height);
+        if height == 0 || len <= height {
+            self.offset.set(0);
+            return 0;
+        }
+
+        let selected = selected.min(len - 1);
+        let mut offset = self.offset.get().min(len - height);
+        if selected < offset {
+            offset = selected;
+        } else if selected >= offset + height {
+            offset = selected + 1 - height;
+        }
+        offset = offset.min(len - height);
+        self.offset.set(offset);
+        offset
+    }
+
+    pub fn reset(&self) {
+        self.offset.set(0);
+    }
+
+    pub(super) fn page_size(&self) -> usize {
+        self.capacity.get().max(1)
+    }
+
+    pub(super) fn previous_page(&self, selected: usize, len: usize) -> usize {
+        if len == 0 { return selected; }
+        let page_size = self.page_size();
+        self.offset.set(self.offset.get().saturating_sub(page_size));
+        selected.min(len - 1).saturating_sub(page_size)
+    }
+
+    pub(super) fn next_page(&self, selected: usize, len: usize) -> usize {
+        if len == 0 { return selected; }
+        let page_size = self.page_size();
+        self.offset.set(
+            self.offset.get()
+                .saturating_add(page_size)
+                .min(len.saturating_sub(page_size)),
+        );
+        selected.saturating_add(page_size).min(len - 1)
+    }
 }
 
 impl<T> Default for StatefulList<T> {
@@ -52,11 +109,16 @@ impl<T> Default for StatefulList<T> {
             next_offset: 0,
             total: 0,
             last_load_triggered_at: 0,
+            viewport: ListViewport::default(),
         }
     }
 }
 
 impl<T> StatefulList<T> {
+    pub fn scroll_offset(&self, height: usize) -> usize {
+        self.viewport.offset(self.selected, self.items.len(), height)
+    }
+
     pub fn next(&mut self) {
         if self.items.is_empty() { return; }
         self.selected = (self.selected + 1).min(self.items.len() - 1);
@@ -64,6 +126,14 @@ impl<T> StatefulList<T> {
 
     pub fn prev(&mut self) {
         if self.selected > 0 { self.selected -= 1; }
+    }
+
+    pub fn page_up(&mut self) {
+        self.selected = self.viewport.previous_page(self.selected, self.items.len());
+    }
+
+    pub fn page_down(&mut self) {
+        self.selected = self.viewport.next_page(self.selected, self.items.len());
     }
 
     pub fn selected_item(&self) -> Option<&T> {
@@ -204,6 +274,9 @@ pub struct SearchState {
     pub track_sel: usize,
     pub artist_sel: usize,
     pub playlist_sel: usize,
+    track_viewport: ListViewport,
+    artist_viewport: ListViewport,
+    playlist_viewport: ListViewport,
     pub loading: bool,
 }
 
@@ -219,12 +292,33 @@ impl Default for SearchState {
             track_sel: 0,
             artist_sel: 0,
             playlist_sel: 0,
+            track_viewport: ListViewport::default(),
+            artist_viewport: ListViewport::default(),
+            playlist_viewport: ListViewport::default(),
             loading: false,
         }
     }
 }
 
 impl SearchState {
+    pub fn track_scroll_offset(&self, height: usize) -> usize {
+        self.track_viewport.offset(self.track_sel, self.tracks.len(), height)
+    }
+
+    pub fn artist_scroll_offset(&self, height: usize) -> usize {
+        self.artist_viewport.offset(self.artist_sel, self.artists.len(), height)
+    }
+
+    pub fn playlist_scroll_offset(&self, height: usize) -> usize {
+        self.playlist_viewport.offset(self.playlist_sel, self.playlists.len(), height)
+    }
+
+    pub fn reset_viewports(&self) {
+        self.track_viewport.reset();
+        self.artist_viewport.reset();
+        self.playlist_viewport.reset();
+    }
+
     pub fn total_results(&self) -> usize {
         self.tracks.len() + self.artists.len() + self.playlists.len()
     }
@@ -244,6 +338,34 @@ impl SearchState {
             SearchPane::Tracks    => { if self.track_sel    > 0 { self.track_sel    -= 1; } }
             SearchPane::Artists   => { if self.artist_sel   > 0 { self.artist_sel   -= 1; } }
             SearchPane::Playlists => { if self.playlist_sel > 0 { self.playlist_sel -= 1; } }
+        }
+    }
+
+    pub fn pane_page_up(&mut self) {
+        match self.pane {
+            SearchPane::Tracks => {
+                self.track_sel = self.track_viewport.previous_page(self.track_sel, self.tracks.len())
+            }
+            SearchPane::Artists => {
+                self.artist_sel = self.artist_viewport.previous_page(self.artist_sel, self.artists.len())
+            }
+            SearchPane::Playlists => {
+                self.playlist_sel = self.playlist_viewport.previous_page(self.playlist_sel, self.playlists.len())
+            }
+        }
+    }
+
+    pub fn pane_page_down(&mut self) {
+        match self.pane {
+            SearchPane::Tracks => {
+                self.track_sel = self.track_viewport.next_page(self.track_sel, self.tracks.len())
+            }
+            SearchPane::Artists => {
+                self.artist_sel = self.artist_viewport.next_page(self.artist_sel, self.artists.len())
+            }
+            SearchPane::Playlists => {
+                self.playlist_sel = self.playlist_viewport.next_page(self.playlist_sel, self.playlists.len())
+            }
         }
     }
 
@@ -497,6 +619,7 @@ impl KeybindGroup {
             binds: &[
                 Keybind { key: "↑", action: "Up" },
                 Keybind { key: "↓", action: "Down" },
+                Keybind { key: "PgUp/PgDn", action: "Move one page" },
                 Keybind { key: "Enter", action: "Select/Open" },
                 Keybind { key: "a", action: "Add to queue" },
                 Keybind { key: "f", action: "Toggle favorite/follow/save" },
@@ -641,6 +764,104 @@ mod tests {
         let mut list: StatefulList<u32> = StatefulList::default();
         list.next();
         assert_eq!(list.selected, 0);
+    }
+
+    #[test]
+    fn scroll_offset_page_moves_only_at_edges() {
+        let mut list: StatefulList<u32> = StatefulList::default();
+        list.append((0..20u32).collect(), 20);
+
+        // Cursor moves within the window without scrolling.
+        for sel in 0..5 {
+            list.selected = sel;
+            assert_eq!(list.scroll_offset(5), 0);
+        }
+        // Crossing the bottom edge shifts the page.
+        list.selected = 5;
+        assert_eq!(list.scroll_offset(5), 1);
+        list.selected = 10;
+        assert_eq!(list.scroll_offset(5), 6);
+
+        // Moving back up, the cursor climbs within the window first…
+        for sel in (6..10).rev() {
+            list.selected = sel;
+            assert_eq!(list.scroll_offset(5), 6);
+        }
+        // …and only crossing the top edge scrolls the page.
+        list.selected = 5;
+        assert_eq!(list.scroll_offset(5), 5);
+    }
+
+    #[test]
+    fn scroll_offset_clamps_when_list_shrinks() {
+        let mut list: StatefulList<u32> = StatefulList::default();
+        list.append((0..20u32).collect(), 20);
+        list.selected = 19;
+        assert_eq!(list.scroll_offset(5), 15);
+
+        list.items.truncate(8);
+        list.selected = 7;
+        assert_eq!(list.scroll_offset(5), 3);
+
+        list.items.truncate(4); // fits entirely in the window
+        list.selected = 3;
+        assert_eq!(list.scroll_offset(5), 0);
+    }
+
+    #[test]
+    fn scroll_offset_handles_stale_selection() {
+        let mut list: StatefulList<u32> = StatefulList::default();
+        list.append((0..20u32).collect(), 20);
+        list.selected = 100;
+
+        assert_eq!(list.scroll_offset(5), 15);
+    }
+
+    #[test]
+    fn list_viewport_can_be_reset() {
+        let viewport = ListViewport::default();
+        assert_eq!(viewport.offset(10, 20, 5), 6);
+
+        viewport.reset();
+        assert_eq!(viewport.offset(0, 20, 5), 0);
+    }
+
+    #[test]
+    fn stateful_list_pages_by_viewport_height() {
+        let mut list: StatefulList<u32> = StatefulList::default();
+        list.append((0..20u32).collect(), 20);
+        assert_eq!(list.scroll_offset(5), 0);
+
+        list.page_down();
+        assert_eq!(list.selected, 5);
+        assert_eq!(list.scroll_offset(5), 5);
+
+        list.page_down();
+        assert_eq!(list.selected, 10);
+        assert_eq!(list.scroll_offset(5), 10);
+
+        list.page_up();
+        assert_eq!(list.selected, 5);
+        assert_eq!(list.scroll_offset(5), 5);
+    }
+
+    #[test]
+    fn stateful_list_paging_clamps_at_boundaries() {
+        let mut list: StatefulList<u32> = StatefulList::default();
+        list.append((0..12u32).collect(), 12);
+        assert_eq!(list.scroll_offset(5), 0);
+
+        list.page_up();
+        assert_eq!(list.selected, 0);
+
+        list.selected = 10;
+        list.page_down();
+        assert_eq!(list.selected, 11);
+
+        let mut empty: StatefulList<u32> = StatefulList::default();
+        empty.page_up();
+        empty.page_down();
+        assert_eq!(empty.selected, 0);
     }
 
     #[test]
