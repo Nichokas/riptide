@@ -516,6 +516,7 @@ fn render_content(f: &mut Frame, app: &App, area: Rect) {
     }
 
     match app.current_tab {
+        Tab::Home => render_home(f, app, area),
         Tab::Artists => render_artist_list(f, app, area),
         Tab::Albums => render_fav_albums_list(f, app, area),
         Tab::Playlists => render_playlist_list(f, app, area),
@@ -529,6 +530,125 @@ fn render_content(f: &mut Frame, app: &App, area: Rect) {
         ),
         Tab::Search => render_search_results(f, app, area),
     }
+}
+
+// ── Home tab ──────────────────────────────────────────────────────────────────
+
+fn render_home(f: &mut Frame, app: &App, area: Rect) {
+    use crate::app::HomeSectionFocus;
+
+    let block = Block::default()
+        .title(" Home ")
+        .borders(Borders::TOP)
+        .border_style(Style::default().fg(ACCENT));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(ratatui::layout::Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+        ])
+        .split(inner);
+
+    render_home_section(f, &app.home_new_releases, chunks[0], "New Releases",
+        app.home_section_focus == HomeSectionFocus::NewReleases);
+    render_home_section(f, &app.home_daily_mixes, chunks[1], "Daily Mixes",
+        app.home_section_focus == HomeSectionFocus::DailyMixes);
+    render_home_section(f, &app.home_discovery_mixes, chunks[2], "Daily Discovery",
+        app.home_section_focus == HomeSectionFocus::DiscoveryMixes);
+}
+
+fn render_home_section(
+    f: &mut Frame,
+    section: &crate::app::HomeSection<crate::api::models::Playlist>,
+    area: Rect,
+    title: &str,
+    focused: bool,
+) {
+    let border_color = if focused { ACCENT } else { Color::Gray };
+
+    let block = Block::default()
+        .title(format!(" {title} "))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if section.loading {
+        let spinner = spinner_char(0);
+        let text = format!("{} Loading...", spinner);
+        let paragraph = Paragraph::new(text).style(Style::default().fg(Color::Gray));
+        f.render_widget(paragraph, inner);
+        return;
+    }
+
+    if let Some(ref error) = section.error {
+        let paragraph = Paragraph::new(format!("Error: {}", error))
+            .style(Style::default().fg(Color::Red));
+        f.render_widget(paragraph, inner);
+        return;
+    }
+
+    if section.items.is_empty() {
+        let paragraph = Paragraph::new("No items")
+            .style(Style::default().fg(Color::Gray));
+        f.render_widget(paragraph, inner);
+        return;
+    }
+
+    let height = inner.height as usize;
+    let start = if section.selected < height {
+        0
+    } else {
+        section.selected - height + 1
+    };
+
+    let visible_items: Vec<ListItem> = section.items[start..]
+        .iter()
+        .take(height)
+        .enumerate()
+        .map(|(i, item)| {
+            let idx = start + i;
+            let is_selected = idx == section.selected && focused;
+
+            let title_style = if is_selected {
+                Style::default().fg(Color::White).bg(HIGHLIGHT_BG).add_modifier(Modifier::BOLD)
+            } else if focused {
+                Style::default().fg(Color::White)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+
+            let prefix = if is_selected { "▶ " } else { "  " };
+            let mut line_spans = vec![
+                Span::styled(format!("{}{}", prefix, item.title), title_style),
+            ];
+
+            if let Some(ref desc) = item.description {
+                if !desc.is_empty() {
+                    let desc_style = if is_selected {
+                        Style::default().fg(ACCENT).bg(HIGHLIGHT_BG)
+                    } else if focused {
+                        Style::default().fg(ACCENT)
+                    } else {
+                        Style::default().fg(DIM)
+                    };
+                    line_spans.push(Span::raw("\n"));
+                    line_spans.push(Span::styled(format!("    {}", desc), desc_style));
+                }
+            }
+
+            ListItem::new(Line::from(line_spans))
+        })
+        .collect();
+
+    let list = List::new(visible_items);
+    f.render_widget(list, inner);
 }
 
 // ── Artists list ──────────────────────────────────────────────────────────────
@@ -1628,6 +1748,7 @@ fn get_context_hint(app: &App) -> String {
         "↑↓ Select | a Add | f Fav | r Radio | c Copy".to_string()
     } else {
         match app.current_tab {
+            Tab::Home => "↑↓ Select | ← → Switch section | Enter Open".to_string(),
             Tab::Favorites => "↑↓ Select | a Add | f Fav | r Radio | c Copy".to_string(),
             Tab::Artists => "↑↓ Select | f Follow | Enter Open".to_string(),
             Tab::Albums => "↑↓ Select | f Fav | Enter Open".to_string(),

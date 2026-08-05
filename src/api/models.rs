@@ -69,6 +69,12 @@ pub struct Album {
     pub added_at: Option<String>,
 }
 
+impl std::fmt::Display for Album {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.title)
+    }
+}
+
 impl Album {
     pub fn quality_badge(&self) -> Option<&'static str> {
         let tags = self.media_metadata.as_ref().map(|m| m.tags.as_slice()).unwrap_or(&[]);
@@ -197,8 +203,16 @@ pub struct Playlist {
     /// Creation date returned by the API for owned playlists.
     #[serde(default)]
     pub created: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
     #[serde(default, skip_deserializing)]
     pub added_at: Option<String>,
+}
+
+impl std::fmt::Display for Playlist {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.title)
+    }
 }
 
 impl Playlist {

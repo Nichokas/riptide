@@ -71,7 +71,6 @@ impl App {
                         self.fetch_now_playing_metadata();
                     }
                 }
-                self.load_favorites();
             }
 
             ApiResponse::ArtistTopTracks { artist_id, tracks } => {
@@ -312,8 +311,36 @@ impl App {
                 }
             }
 
+            ApiResponse::NewReleases(items) => {
+                self.home_new_releases.items = items;
+                self.home_new_releases.loading = false;
+            }
+
+            ApiResponse::DailyMixes(items) => {
+                self.home_daily_mixes.items = items;
+                self.home_daily_mixes.loading = false;
+            }
+
+            ApiResponse::DiscoveryMixes(items) => {
+                self.home_discovery_mixes.items = items;
+                self.home_discovery_mixes.loading = false;
+            }
+
             ApiResponse::Error(msg) => {
-                self.set_status(msg, StatusLevel::Error);
+                self.set_status(msg.clone(), StatusLevel::Error);
+                // Also set error on home sections if they're loading
+                if self.home_new_releases.loading {
+                    self.home_new_releases.error = Some(msg.clone());
+                    self.home_new_releases.loading = false;
+                }
+                if self.home_daily_mixes.loading {
+                    self.home_daily_mixes.error = Some(msg.clone());
+                    self.home_daily_mixes.loading = false;
+                }
+                if self.home_discovery_mixes.loading {
+                    self.home_discovery_mixes.error = Some(msg);
+                    self.home_discovery_mixes.loading = false;
+                }
             }
         }
     }

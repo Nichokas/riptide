@@ -6,6 +6,17 @@ use crate::api::models::{Album, Artist, Playlist, Track};
 use super::{App, SortField, StatusLevel, Tab};
 
 impl App {
+    // ── Home ──────────────────────────────────────────────────────────────────
+
+    pub fn load_home(&mut self) {
+        self.home_new_releases.loading = true;
+        self.home_daily_mixes.loading = true;
+        self.home_discovery_mixes.loading = true;
+        let _ = self.api_tx.send(ApiRequest::LoadNewReleases);
+        let _ = self.api_tx.send(ApiRequest::LoadDailyMixes);
+        let _ = self.api_tx.send(ApiRequest::LoadDiscoveryMixes);
+    }
+
     // ── Favorites ─────────────────────────────────────────────────────────────
 
     fn favorite_track(&mut self, track: &Track) {
@@ -131,6 +142,7 @@ impl App {
     pub fn apply_sort(&mut self, field: SortField) {
         self.sort_palette.active = false;
         match self.current_tab {
+            Tab::Home => {},
             Tab::Favorites => {
                 self.favorites_sort = Some(field);
                 match field {

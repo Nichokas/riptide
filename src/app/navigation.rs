@@ -10,11 +10,12 @@ impl App {
 
     pub fn next_tab(&mut self) {
         self.current_tab = match self.current_tab {
+            Tab::Home      => Tab::Favorites,
             Tab::Favorites => Tab::Artists,
             Tab::Artists   => Tab::Albums,
             Tab::Albums    => Tab::Playlists,
             Tab::Playlists => Tab::Search,
-            Tab::Search    => Tab::Favorites,
+            Tab::Search    => Tab::Home,
         };
         self.view_stack.clear();
         if self.current_tab == Tab::Search {
@@ -25,7 +26,8 @@ impl App {
 
     pub fn prev_tab(&mut self) {
         self.current_tab = match self.current_tab {
-            Tab::Favorites => Tab::Search,
+            Tab::Home      => Tab::Search,
+            Tab::Favorites => Tab::Home,
             Tab::Artists   => Tab::Favorites,
             Tab::Albums    => Tab::Artists,
             Tab::Playlists => Tab::Albums,
@@ -137,12 +139,38 @@ impl App {
         tracks.loading = true;
         let detail = PlaylistDetail { playlist, tracks };
         self.view_stack.push(View::PlaylistDetail(detail));
-        let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks { uuid, offset: 0 });
+        // Use v2 API for mixes from Home tab, v1 for regular playlists
+        if self.current_tab == Tab::Home {
+            let _ = self.api_tx.send(ApiRequest::LoadMixTracks { uuid, offset: 0 });
+        } else {
+            let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks { uuid, offset: 0 });
+        }
     }
 
     pub fn open_selected_playlist(&mut self) {
         let Some(playlist) = self.playlists.selected_item().cloned() else { return };
         self.open_playlist(playlist);
+    }
+
+    pub fn open_selected_home_item(&mut self) {
+        use super::HomeSectionFocus;
+        match self.home_section_focus {
+            HomeSectionFocus::NewReleases => {
+                if let Some(playlist) = self.home_new_releases.selected_item().cloned() {
+                    self.open_playlist(playlist);
+                }
+            }
+            HomeSectionFocus::DailyMixes => {
+                if let Some(playlist) = self.home_daily_mixes.selected_item().cloned() {
+                    self.open_playlist(playlist);
+                }
+            }
+            HomeSectionFocus::DiscoveryMixes => {
+                if let Some(playlist) = self.home_discovery_mixes.selected_item().cloned() {
+                    self.open_playlist(playlist);
+                }
+            }
+        }
     }
 
     pub fn go_to_artist_from_track(&mut self, track: &crate::api::models::Track) {

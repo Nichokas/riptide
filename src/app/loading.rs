@@ -26,6 +26,7 @@ impl App {
     pub fn load_favorites(&mut self) {
         if self.favorites.loading || self.favorites.exhausted { return; }
         self.favorites.loading = true;
+        self.favorites.last_load_triggered_at = self.favorites.items.len();
         let _ = self.api_tx.send(ApiRequest::LoadFavorites { offset: self.favorites.next_offset });
     }
 

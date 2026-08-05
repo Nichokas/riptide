@@ -4,6 +4,7 @@
 use anyhow::{Context, Result};
 use base64::Engine as _;
 use serde::de::DeserializeOwned;
+use std::collections::HashMap;
 use tokio::sync::RwLock;
 
 use super::auth::refresh_token_async;
@@ -58,6 +59,160 @@ struct OpenApiLinksMeta {
     next_cursor: Option<String>,
 }
 const USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 12; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/91.0.4472.114 Safari/537.36";
+
+fn parse_iso_duration(s: &str) -> u32 {
+    // Parse ISO 8601 duration format (e.g., "PT5M10S" = 5 min 10 sec = 310 sec)
+    let s = s.trim_start_matches('P').trim_start_matches('T');
+    let mut seconds = 0u32;
+    let mut current_num = String::new();
+
+    for ch in s.chars() {
+        match ch {
+            '0'..='9' => current_num.push(ch),
+            'H' => {
+                if let Ok(hours) = current_num.parse::<u32>() {
+                    seconds += hours * 3600;
+                }
+                current_num.clear();
+            }
+            'M' => {
+                if let Ok(minutes) = current_num.parse::<u32>() {
+                    seconds += minutes * 60;
+                }
+                current_num.clear();
+            }
+            'S' => {
+                if let Ok(secs) = current_num.parse::<u32>() {
+                    seconds += secs;
+                }
+                current_num.clear();
+            }
+            _ => {}
+        }
+    }
+    seconds
+}
+
+fn extract_artist_from_track(
+    track_obj: &serde_json::Value,
+    artist_map: &HashMap<String, serde_json::Value>,
+) -> String {
+    track_obj
+        .get("relationships")
+        .and_then(|v| v.get("artists"))
+        .and_then(|v| v.get("data"))
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .and_then(|artist_id| artist_map.get(artist_id))
+        .and_then(|artist_obj| artist_obj.get("attributes"))
+        .and_then(|v| v.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown")
+        .to_string()
+}
+
+fn build_artist_map(api_resp: &serde_json::Value) -> HashMap<String, serde_json::Value> {
+    let mut artist_map = HashMap::new();
+    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+        for item in included {
+            if item.get("type").and_then(|v| v.as_str()) == Some("artists") {
+                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                    artist_map.insert(id.to_string(), item.clone());
+                }
+            }
+        }
+    }
+    artist_map
+}
+
+fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>, u32)> {
+    // Get track IDs from the playlist's items relationship
+    let mut track_ids = Vec::new();
+    if let Some(items_data) = api_resp.get("data")
+        .and_then(|v| v.get("relationships"))
+        .and_then(|v| v.get("items"))
+        .and_then(|v| v.get("data"))
+        .and_then(|v| v.as_array())
+    {
+        for item_ref in items_data {
+            if let Some(track_id) = item_ref.get("id").and_then(|v| v.as_str()) {
+                track_ids.push(track_id.to_string());
+            }
+        }
+    }
+
+    // Build a map of track IDs to track details from the included array
+    let mut track_map = HashMap::new();
+    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+        for item in included {
+            if item.get("type").and_then(|v| v.as_str()) == Some("tracks") {
+                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                    track_map.insert(id.to_string(), item.clone());
+                }
+            }
+        }
+    }
+
+    let artist_map = build_artist_map(api_resp);
+
+    let mut tracks = Vec::new();
+    for track_id in track_ids {
+        if let Some(track_obj) = track_map.get(&track_id) {
+            if let Some(attrs) = track_obj.get("attributes").and_then(|v| v.as_object()) {
+                if let Some(title) = attrs.get("title").and_then(|v| v.as_str()) {
+                    if let Ok(id) = track_id.parse::<u64>() {
+                        let duration = parse_iso_duration(
+                            attrs.get("duration")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("PT0S")
+                        );
+
+                        let artist_name = extract_artist_from_track(track_obj, &artist_map);
+
+                        let album_title = attrs.get("album")
+                            .and_then(|v| v.as_object())
+                            .and_then(|obj| obj.get("title"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown");
+
+                        tracks.push(Track {
+                            id,
+                            title: title.to_string(),
+                            duration,
+                            artist: Some(ArtistRef {
+                                name: artist_name,
+                            }),
+                            artists: Vec::new(),
+                            album: Album {
+                                id: 0,
+                                title: album_title.to_string(),
+                                number_of_tracks: None,
+                                release_date: None,
+                                cover: None,
+                                artist: None,
+                                audio_quality: None,
+                                media_metadata: None,
+                                added_at: None,
+                            },
+                            audio_quality: None,
+                            media_metadata: None,
+                            added_at: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let total = api_resp.get("meta")
+        .and_then(|v| v.get("totalNumberOfItems"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(tracks.len() as u64) as u32;
+
+    Ok((tracks, total))
+}
 
 pub struct ApiClient {
     http: reqwest::Client,
@@ -216,6 +371,7 @@ impl ApiClient {
                 title: attr.name.clone(),
                 number_of_tracks: attr.number_of_items,
                 created: None,
+                description: None,
                 added_at,
             })
         }).collect();
@@ -342,14 +498,36 @@ impl ApiClient {
     }
 
     pub async fn get_playlist_tracks(&self, uuid: &str, offset: u32, limit: u32) -> Result<Page<Track>> {
-        self.get(
-            &format!("/playlists/{uuid}/tracks"),
-            &[
-                ("limit", limit.to_string()),
-                ("offset", offset.to_string()),
-            ],
-        )
-        .await
+        let token = self.token.read().await.clone();
+        let url = format!("{OPENAPI_BASE}/playlists/{uuid}?countryCode=US&include=items.artists&offset={offset}&limit={limit}");
+
+        tracing::debug!("API request: GET /playlists/{uuid} with include=items.artists");
+
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        tracing::debug!("API response: {} /playlists/{uuid}", status);
+
+        if !status.is_success() {
+            let body = resp.text().await?;
+            tracing::error!("API error {} on /playlists/{}: {}", status, uuid, body);
+            anyhow::bail!("HTTP {}", status);
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        let (tracks, total) = parse_v2_playlist_tracks(&api_resp)?;
+        Ok(Page {
+            items: tracks,
+            total,
+        })
     }
 
     // ── Favorites ─────────────────────────────────────────────────────────────
@@ -579,6 +757,160 @@ impl ApiClient {
         }
 
         Err(anyhow::anyhow!("no stream URL available for track {track_id}"))
+    }
+
+    async fn get_mixes(&self, endpoint: &str) -> Result<Vec<Playlist>> {
+        let token = self.token.read().await.clone();
+        let url = format!("{OPENAPI_BASE}{endpoint}?locale=en-US&include=items.items");
+
+        tracing::debug!("API request: GET {endpoint}");
+
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            anyhow::bail!("HTTP {}", resp.status());
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        let mut playlists = Vec::new();
+
+        // Build a map of playlist IDs to their details from the included array
+        let mut playlist_map = HashMap::new();
+        if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+            for item in included {
+                if let Some("playlists") = item.get("type").and_then(|v| v.as_str()) {
+                    if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                        playlist_map.insert(id.to_string(), item.clone());
+                    }
+                }
+            }
+        }
+
+        // Use the order from the data array to create playlists in the correct order
+        if let Some(data) = api_resp.get("data").and_then(|v| v.as_array()) {
+            if !data.is_empty() {
+                for item_ref in data {
+                    if let Some(id) = item_ref.get("id").and_then(|v| v.as_str()) {
+                        if let Some(playlist_obj) = playlist_map.get(id) {
+                            if let Some(attrs) = playlist_obj.get("attributes").and_then(|v| v.as_object()) {
+                                let title = attrs.get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let description = attrs.get("description")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                                let number_of_tracks = attrs.get("numberOfItems")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|n| n as u32);
+
+                                playlists.push(Playlist {
+                                    uuid: id.to_string(),
+                                    title,
+                                    number_of_tracks,
+                                    created: None,
+                                    description,
+                                    added_at: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: if data array was empty or missing, use all playlists from included
+        if playlists.is_empty() {
+            for (_, playlist_obj) in playlist_map.iter() {
+                if let Some(attrs) = playlist_obj.get("attributes").and_then(|v| v.as_object()) {
+                    if let Some(id) = playlist_obj.get("id").and_then(|v| v.as_str()) {
+                        let title = attrs.get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let description = attrs.get("description")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let number_of_tracks = attrs.get("numberOfItems")
+                            .and_then(|v| v.as_u64())
+                            .map(|n| n as u32);
+
+                        playlists.push(Playlist {
+                            uuid: id.to_string(),
+                            title,
+                            number_of_tracks,
+                            created: None,
+                            description,
+                            added_at: None,
+                        });
+                    }
+                }
+            }
+            playlists.sort_by(|a, b| {
+                let get_num = |s: &str| {
+                    s.split_whitespace()
+                        .last()
+                        .and_then(|w| w.parse::<u32>().ok())
+                };
+                let a_num = get_num(&a.title);
+                let b_num = get_num(&b.title);
+                match (a_num, b_num) {
+                    (Some(a), Some(b)) => a.cmp(&b),
+                    _ => a.title.cmp(&b.title),
+                }
+            });
+        }
+
+        Ok(playlists)
+    }
+
+    pub async fn get_daily_mixes(&self) -> Result<Vec<Playlist>> {
+        self.get_mixes("/userDailyMixes/me").await
+    }
+
+    pub async fn get_discovery_mixes(&self) -> Result<Vec<Playlist>> {
+        self.get_mixes("/userDiscoveryMixes/me").await
+    }
+
+    pub async fn get_mix_tracks(&self, mix_id: &str, offset: u32) -> Result<(Vec<Track>, u32)> {
+        let token = self.token.read().await.clone();
+        let url = format!("{OPENAPI_BASE}/playlists/{mix_id}?countryCode=US&include=items.artists&offset={offset}&limit=100");
+
+        tracing::debug!("API request: GET /playlists/{} with include=items.artists", mix_id);
+
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        tracing::debug!("API response: {} /playlists/{}", status, mix_id);
+
+        if !status.is_success() {
+            let body = resp.text().await?;
+            tracing::error!("API error {} on /playlists/{}: {}", status, mix_id, body);
+            anyhow::bail!("HTTP {}", status);
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        parse_v2_playlist_tracks(&api_resp)
+    }
+
+    pub async fn get_new_release_mixes(&self) -> Result<Vec<Playlist>> {
+        self.get_mixes("/userNewReleaseMixes/me").await
     }
 }
 
