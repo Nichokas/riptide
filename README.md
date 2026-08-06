@@ -22,7 +22,6 @@ A terminal UI music player for Tidal, built with Rust.
 
 <img width="1920" height="1080" alt="Screenshot_2026-08-03_16 22 33" src="https://github.com/user-attachments/assets/96b5b536-5d5a-495c-abc3-72cc11e47e81" />
 
-
 ## Features
 
 - Browse your Tidal library: favorites, artists, playlists, and albums
@@ -40,14 +39,15 @@ A terminal UI music player for Tidal, built with Rust.
 - **Rust** 1.85+ (2024 edition) — to build from source
 - **mpv** — used as the audio backend; must be on your `PATH`
 - A **Tidal** account (HiFi or HiFi Plus recommended for lossless quality)
+- **chafa** — used for terminal graphics support, dependency of ratatui-image
 
-### Installing mpv
+### Installing dependecies
 
-| Platform              | Command                |
-| --------------------- | ---------------------- |
-| Linux (Debian/Ubuntu) | `sudo apt install mpv` |
-| Linux (Arch)          | `sudo pacman -S mpv`   |
-| Linux (Fedora)        | `sudo dnf install mpv` |
+| Platform              | Command                                        |
+| --------------------- | ---------------------------------------------- |
+| Linux (Debian/Ubuntu) | `sudo apt install mpv dbus libglib2.0-0 chafa` |
+| Linux (Arch)          | `sudo pacman -S mpv dbus glib2 chafa`          |
+| Linux (Fedora)        | `sudo dnf install mpv dbus glib2 chafa`        |
 
 ## Installation
 
@@ -62,6 +62,7 @@ curl -fsSL https://raw.githubusercontent.com/fezzik-the-giant/riptide/master/ins
 The script detects your platform (Linux/macOS, x86_64/ARM64) and installs to `/usr/local/bin`.
 
 To install to a custom directory:
+
 ```bash
 INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/fezzik-the-giant/riptide/master/install.sh | bash
 ```
@@ -269,8 +270,9 @@ You can customize when tracks are scrobbled by adding `min_seconds` and `min_per
 - `min_percent`: Minimum percentage of track to play before scrobbling (default: 30, minimum enforced: 30)
 
 The actual threshold used is whichever is **less** between the two values. For example, with the settings above:
+
 - A 3-minute (180s) song: min(90s, 45s) = 45 seconds
-- A 2-minute (120s) song: min(60s, 45s) = 45 seconds  
+- A 2-minute (120s) song: min(60s, 45s) = 45 seconds
 - A 10-second song: min(5s, 45s) = 5 seconds (no minimum enforced for very short tracks)
 
 ## Keybindings
@@ -280,7 +282,7 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 ### Global
 
 | Key         | Action          |
-|-------------|-----------------|
+| ----------- | --------------- |
 | `?`         | Show this help  |
 | `q`         | Quit            |
 | `/`         | Command palette |
@@ -297,7 +299,7 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 ### Navigation
 
 | Key     | Action                           |
-|---------|----------------------------------|
+| ------- | -------------------------------- |
 | `↑`     | Up                               |
 | `↓`     | Down                             |
 | `Enter` | Select/Open                      |
@@ -313,7 +315,7 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 ### Queue
 
 | Key     | Action                  |
-|---------|-------------------------|
+| ------- | ----------------------- |
 | `↑`     | Up                      |
 | `↓`     | Down                    |
 | `d`     | Remove track            |
@@ -327,7 +329,7 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 Open search with `/` → `search` or via command palette.
 
 | Key         | Action       |
-|-------------|--------------|
+| ----------- | ------------ |
 | `↑`         | Up           |
 | `↓`         | Down         |
 | `Tab`       | Next pane    |
@@ -348,12 +350,12 @@ Open with `/` and type the start of a destination (Tab to autocomplete):
 
 Album art and artist pictures are rendered using the best available graphics protocol for your terminal:
 
-| Terminal                                   | Protocol | Quality |
-|--------------------------------------------| --- | --- |
+| Terminal                                   | Protocol       | Quality                   |
+| ------------------------------------------ | -------------- | ------------------------- |
 | [Kitty](https://sw.kovidgoyal.net/kitty/)  | Kitty graphics | Full color, pixel-perfect |
-| [foot](https://codeberg.org/dnkl/foot) | Sixel | Full color |
-| [mintty](https://github.com/mintty/mintty) | Sixel | Full color |
-| Other terminals                            | Half-blocks | Color approximation |
+| [foot](https://codeberg.org/dnkl/foot)     | Sixel          | Full color                |
+| [mintty](https://github.com/mintty/mintty) | Sixel          | Full color                |
+| Other terminals                            | Half-blocks    | Color approximation       |
 
 The terminal is automatically detected via the `TERM` and `COLORTERM` environment variables. If your terminal supports Kitty graphics, it will be used. If not, Riptide falls back to Sixel (if supported), and finally to half-block characters as a universal fallback.
 
