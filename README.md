@@ -39,7 +39,7 @@ A terminal UI music player for Tidal, built with Rust.
 - **Rust** 1.85+ (2024 edition) — to build from source
 - **mpv** — used as the audio backend; must be on your `PATH`
 - A **Tidal** account (HiFi or HiFi Plus recommended for lossless quality)
-- **chafa** - used for terminal graphics support, dependency of ratatui-image
+- **chafa** — used for terminal graphics support, dependency of ratatui-image
 
 ### Installing dependecies
 
