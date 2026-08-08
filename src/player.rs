@@ -173,6 +173,10 @@ impl PlayerWorker {
                 "--prefetch-playlist=yes",
                 "--load-scripts=no",
                 "--volume-max=100", // we don't want to go over 100, default is 130
+                // stream cache: survives slow/flaky connections without stutter
+                "--cache=yes",
+                "--demuxer-max-bytes=150MiB",
+                "--demuxer-readahead-secs=60",
             ])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
