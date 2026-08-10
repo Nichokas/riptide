@@ -82,7 +82,7 @@ fn main() -> Result<()> {
     }
 
     tracing::info!("╔══════════════════════════════════════════════════════════════╗");
-    tracing::info!("║                      🎵 RIPTIDE STARTING 🎵                   ║");
+    tracing::info!("║                      🎵 RIPTIDE STARTING 🎵                  ║");
     tracing::info!("╚══════════════════════════════════════════════════════════════╝");
     tracing::info!("Loading configuration...");
     let mut config = api::auth::load_config()?;
