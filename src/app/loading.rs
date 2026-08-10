@@ -32,12 +32,26 @@ impl App {
 
     pub fn load_more_playlist_tracks(&mut self) {
         if let Some(View::PlaylistDetail(detail)) = self.view_stack.last_mut() {
+            tracing::debug!("load_more_playlist_tracks check: loading={}, exhausted={}", detail.tracks.loading, detail.tracks.exhausted);
             if !detail.tracks.loading && !detail.tracks.exhausted {
                 let uuid = detail.playlist.uuid.clone();
-                let offset = detail.tracks.next_offset;
+                let next_url = detail.tracks.pagination_cursor.clone();
                 detail.tracks.loading = true;
-                let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks { uuid, offset });
+                match &next_url {
+                    Some(_) => tracing::debug!("Sending request for next page"),
+                    None => tracing::debug!("Sending request for initial page"),
+                }
+                let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks { uuid, next_url });
+            } else {
+                if detail.tracks.loading {
+                    tracing::debug!("Skipping load - already loading");
+                }
+                if detail.tracks.exhausted {
+                    tracing::debug!("Skipping load - exhausted");
+                }
             }
+        } else {
+            tracing::debug!("load_more_playlist_tracks: no detail view open");
         }
     }
 

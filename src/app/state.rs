@@ -41,6 +41,7 @@ pub struct StatefulList<T> {
     pub next_offset: u32,
     pub total: u32,
     pub last_load_triggered_at: usize,
+    pub pagination_cursor: Option<String>,
     viewport: ListViewport,
 }
 
@@ -109,6 +110,7 @@ impl<T> Default for StatefulList<T> {
             next_offset: 0,
             total: 0,
             last_load_triggered_at: 0,
+            pagination_cursor: None,
             viewport: ListViewport::default(),
         }
     }
@@ -499,6 +501,8 @@ pub struct NowPlaying {
     pub source_playlist_uuid: Option<String>,
     /// How many tracks from that playlist have been loaded into the queue so far.
     pub source_playlist_next_offset: u32,
+    /// Cursor for pagination of the source playlist
+    pub source_playlist_cursor: Option<String>,
     /// Saved queue order before shuffling; restored when shuffle is toggled off.
     pub original_queue: Vec<Track>,
     /// Whether this track has been sent to Last.fm for scrobbling
@@ -526,6 +530,7 @@ impl Default for NowPlaying {
             shuffle: false,
             source_playlist_uuid: None,
             source_playlist_next_offset: 0,
+            source_playlist_cursor: None,
             original_queue: Vec::new(),
             lastfm_sent: false,
         }

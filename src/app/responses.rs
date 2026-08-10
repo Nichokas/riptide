@@ -186,11 +186,17 @@ impl App {
                 }
             }
 
-            ApiResponse::PlaylistTracks { uuid, tracks, total } => {
+            ApiResponse::PlaylistTracks { uuid, tracks, total, next_cursor } => {
                 // 1. Update the detail view while it's open.
                 if let Some(View::PlaylistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.playlist.uuid == uuid {
                         detail.tracks.append(tracks.clone(), total);
+                        detail.tracks.pagination_cursor = next_cursor.clone();
+                        detail.tracks.exhausted = next_cursor.is_none();
+                        match &next_cursor {
+                            Some(c) => tracing::debug!("Stored cursor: {} | Total items loaded: {}", c, detail.tracks.items.len()),
+                            None => tracing::debug!("No more pages | Total items loaded: {}", detail.tracks.items.len()),
+                        }
                     }
                 }
 
@@ -223,16 +229,18 @@ impl App {
                             self.now_playing.queue.len() as u32;
                     }
 
-                    // If the detail view is gone, keep firing page requests ourselves.
+                    self.now_playing.source_playlist_cursor = next_cursor.clone();
+
+                    // If the detail view is gone, keep firing page requests ourselves (if more pages available).
                     let detail_open = if let Some(View::PlaylistDetail(d)) = self.view_stack.last() {
                         d.playlist.uuid == uuid
                     } else {
                         false
                     };
-                    if !detail_open && self.now_playing.source_playlist_next_offset < total {
+                    if !detail_open && next_cursor.is_some() && self.now_playing.source_playlist_next_offset < total {
                         let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks {
                             uuid,
-                            offset: self.now_playing.source_playlist_next_offset,
+                            next_url: self.now_playing.source_playlist_cursor.clone(),
                         });
                     }
 

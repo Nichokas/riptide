@@ -143,7 +143,7 @@ impl App {
         if self.current_tab == Tab::Home {
             let _ = self.api_tx.send(ApiRequest::LoadMixTracks { uuid, offset: 0 });
         } else {
-            let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks { uuid, offset: 0 });
+            let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks { uuid, next_url: None });
         }
     }
 

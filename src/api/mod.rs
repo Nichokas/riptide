@@ -28,7 +28,7 @@ pub enum ApiRequest {
     LoadAlbumTracks { album_id: u64 },
     FetchAlbumArt { album_id: u64, cover_id: String },
     FetchArtistArt { artist_id: u64, picture_id: String },
-    LoadPlaylistTracks { uuid: String, offset: u32 },
+    LoadPlaylistTracks { uuid: String, next_url: Option<String> },
     LoadMixTracks { uuid: String, offset: u32 },
     Search { query: String },
     ResolveStreamUrl { track_id: u64 },
@@ -63,7 +63,7 @@ pub enum ApiResponse {
     AlbumArt { album_id: u64, image_data: Vec<u8> },
     ArtistArt { artist_id: u64, image_data: Vec<u8> },
     ArtistBio { artist_id: u64, text: String },
-    PlaylistTracks { uuid: String, tracks: Vec<Track>, total: u32 },
+    PlaylistTracks { uuid: String, tracks: Vec<Track>, total: u32, next_cursor: Option<String> },
     SearchResults(Box<SearchResponse>),
     StreamUrl { track_id: u64, url: String },
     Lyrics {
@@ -139,37 +139,31 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         },
 
         ApiRequest::LoadPlaylists { offset } => {
-            match client.get_user_playlists(offset, 100).await {
+            if offset != 0 {
+                // v2 API returns all playlists in a single request, so pagination is not supported.
+                return ApiResponse::Error("Playlist pagination not supported (v2 API returns all at once)".to_string());
+            }
+
+            match client.get_favorite_playlists().await {
                 Err(e) => ApiResponse::Error(e.to_string()),
-                Ok(mut page) => {
-                    // Populate added_at from the creation date on each owned playlist.
-                    for pl in &mut page.items {
-                        pl.added_at = pl.created.clone();
-                    }
-                    // On the first page, merge followed playlists from both sources.
-                    if offset == 0 {
-                        // v1 favorites — covers playlists saved by older Riptide builds.
-                        if let Ok(fav_page) = client.get_favorite_playlists(100).await {
-                            for entry in fav_page.items {
-                                if !page.items.iter().any(|p| p.uuid == entry.playlist.uuid) {
-                                    let mut pl = entry.playlist;
-                                    pl.added_at = entry.created;
-                                    page.items.push(pl);
-                                }
+                Ok(fav_page) => {
+                    let mut playlists: Vec<Playlist> = fav_page.items.into_iter().map(|entry| {
+                        let mut pl = entry.playlist;
+                        pl.added_at = entry.created;
+                        pl
+                    }).collect();
+
+                    // v2 collection — covers playlists saved via the Tidal web/mobile apps.
+                    if let Ok((coll, _)) = client.get_user_collection_playlists(None).await {
+                        for pl in coll {
+                            if !playlists.iter().any(|p| p.uuid == pl.uuid) {
+                                playlists.push(pl);
                             }
                         }
-                        // v2 collection — covers playlists saved via the Tidal web/mobile apps.
-                        if let Ok((coll, _)) = client.get_user_collection_playlists(None).await {
-                            for pl in coll {
-                                if !page.items.iter().any(|p| p.uuid == pl.uuid) {
-                                    page.items.push(pl);
-                                }
-                            }
-                        }
-                        // Set total to actual combined count so StatefulList marks exhausted.
-                        page.total = page.total.max(page.items.len() as u32);
                     }
-                    ApiResponse::Playlists(page.items, page.total)
+
+                    let total = playlists.len() as u32;
+                    ApiResponse::Playlists(playlists, total)
                 }
             }
         }
@@ -268,12 +262,21 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             }
         }
 
-        ApiRequest::LoadPlaylistTracks { uuid, offset } => {
-            match client.get_playlist_tracks(&uuid, offset, 100).await {
-                Ok(page) => ApiResponse::PlaylistTracks {
+        ApiRequest::LoadPlaylistTracks { uuid, next_url } => {
+            let result = if let Some(next) = &next_url {
+                // Subsequent pages use the relationship endpoint
+                client.get_playlist_relationship_items(next, 0).await
+            } else {
+                // First page uses the playlist endpoint
+                client.get_playlist_tracks(&uuid, None).await
+            };
+
+            match result {
+                Ok((tracks, total, next_url)) => ApiResponse::PlaylistTracks {
                     uuid,
-                    tracks: page.items,
-                    total: page.total,
+                    tracks,
+                    total,
+                    next_cursor: next_url,
                 },
                 Err(e) => ApiResponse::Error(e.to_string()),
             }
@@ -285,6 +288,7 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
                     uuid,
                     tracks,
                     total,
+                    next_cursor: None,
                 },
                 Err(e) => ApiResponse::Error(e.to_string()),
             }

@@ -126,7 +126,21 @@ fn build_artist_map(api_resp: &serde_json::Value) -> HashMap<String, serde_json:
     artist_map
 }
 
-fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>, u32)> {
+fn build_album_map(api_resp: &serde_json::Value) -> HashMap<String, serde_json::Value> {
+    let mut album_map = HashMap::new();
+    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+        for item in included {
+            if item.get("type").and_then(|v| v.as_str()) == Some("albums") {
+                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                    album_map.insert(id.to_string(), item.clone());
+                }
+            }
+        }
+    }
+    album_map
+}
+
+fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>, u32, Option<String>)> {
     // Get track IDs from the playlist's items relationship
     let mut track_ids = Vec::new();
     if let Some(items_data) = api_resp.get("data")
@@ -135,12 +149,17 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
         .and_then(|v| v.get("data"))
         .and_then(|v| v.as_array())
     {
+        tracing::debug!("Found items in data.relationships.items.data, count: {}", items_data.len());
         for item_ref in items_data {
             if let Some(track_id) = item_ref.get("id").and_then(|v| v.as_str()) {
                 track_ids.push(track_id.to_string());
             }
         }
+    } else {
+        tracing::debug!("No items found in data.relationships.items.data");
     }
+
+    tracing::debug!("Extracted {} track IDs", track_ids.len());
 
     // Build a map of track IDs to track details from the included array
     let mut track_map = HashMap::new();
@@ -210,7 +229,186 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
         .and_then(|v| v.as_u64())
         .unwrap_or(tracks.len() as u64) as u32;
 
-    Ok((tracks, total))
+    // Get the next page URL from data.relationships.items.links.next
+    let next_url = api_resp.get("data")
+        .and_then(|v| v.get("relationships"))
+        .and_then(|v| v.get("items"))
+        .and_then(|v| v.get("links"))
+        .and_then(|v| v.get("next"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    match &next_url {
+        Some(_) => tracing::debug!("Next page URL available"),
+        None => tracing::debug!("No more pages"),
+    }
+
+    Ok((tracks, total, next_url))
+}
+
+fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -> Result<(Vec<Track>, u32, Option<String>)> {
+    tracing::debug!("Parsing playlist relationship items response");
+
+    // In relationship responses, items are directly in the data array
+    let mut track_ids = Vec::new();
+    if let Some(items_data) = api_resp.get("data").and_then(|v| v.as_array()) {
+        tracing::debug!("Found {} items in data array, count: {}", items_data.len(), items_data.len());
+        for item_ref in items_data {
+            if let Some(track_id) = item_ref.get("id").and_then(|v| v.as_str()) {
+                track_ids.push(track_id.to_string());
+            }
+        }
+    } else {
+        tracing::debug!("No items found in data array");
+    }
+
+    tracing::debug!("Extracted {} track IDs", track_ids.len());
+
+    // Build a map of track IDs to track details from the included array
+    let mut track_map = HashMap::new();
+    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+        for item in included {
+            if item.get("type").and_then(|v| v.as_str()) == Some("tracks") {
+                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                    track_map.insert(id.to_string(), item.clone());
+                }
+            }
+        }
+    }
+
+    let artist_map = build_artist_map(api_resp);
+
+    let mut tracks = Vec::new();
+    for track_id in track_ids {
+        if let Some(track_obj) = track_map.get(&track_id) {
+            if let Some(attrs) = track_obj.get("attributes").and_then(|v| v.as_object()) {
+                if let Some(title) = attrs.get("title").and_then(|v| v.as_str()) {
+                    if let Ok(id) = track_id.parse::<u64>() {
+                        let duration = parse_iso_duration(
+                            attrs.get("duration")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("PT0S")
+                        );
+
+                        let artist_name = extract_artist_from_track(track_obj, &artist_map);
+
+                        let album_title = attrs.get("album")
+                            .and_then(|v| v.as_object())
+                            .and_then(|obj| obj.get("title"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown");
+
+                        tracks.push(Track {
+                            id,
+                            title: title.to_string(),
+                            duration,
+                            artist: Some(ArtistRef {
+                                name: artist_name,
+                            }),
+                            artists: Vec::new(),
+                            album: Album {
+                                id: 0,
+                                title: album_title.to_string(),
+                                number_of_tracks: None,
+                                release_date: None,
+                                cover: None,
+                                artist: None,
+                                audio_quality: None,
+                                media_metadata: None,
+                                added_at: None,
+                            },
+                            audio_quality: None,
+                            media_metadata: None,
+                            added_at: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Get the next page URL from links.next (at top level for relationship responses)
+    let next_url = api_resp.get("links")
+        .and_then(|v| v.get("next"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    match &next_url {
+        Some(_) => tracing::debug!("Next page URL available"),
+        None => tracing::debug!("No more pages"),
+    }
+
+    Ok((tracks, total, next_url))
+}
+
+fn parse_v2_user_playlists(api_resp: &serde_json::Value) -> Result<(Vec<Playlist>, u32)> {
+    tracing::debug!("Parsing user playlists from JSON:API response");
+
+    let mut playlist_ids = Vec::new();
+    if let Some(items_data) = api_resp.get("data")
+        .and_then(|v| v.get("relationships"))
+        .and_then(|v| v.get("items"))
+        .and_then(|v| v.get("data"))
+        .and_then(|v| v.as_array())
+    {
+        tracing::debug!("Extracting {} playlist references from relationships", items_data.len());
+        for item_ref in items_data {
+            if let Some(id) = item_ref.get("id").and_then(|v| v.as_str()) {
+                playlist_ids.push(id.to_string());
+            }
+            if let Some(added_at) = item_ref.get("meta")
+                .and_then(|m| m.get("addedAt"))
+                .and_then(|v| v.as_str()) {
+                tracing::debug!("Playlist added at: {}", added_at);
+            }
+        }
+    }
+
+    let mut playlist_map = HashMap::new();
+    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+        tracing::debug!("Building playlist map from {} included items", included.len());
+        for item in included {
+            if item.get("type").and_then(|v| v.as_str()) == Some("playlists") {
+                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                    playlist_map.insert(id.to_string(), item.clone());
+                }
+            }
+        }
+        tracing::debug!("Found {} playlists in included array", playlist_map.len());
+    }
+
+    let mut playlists = Vec::new();
+    for playlist_id in playlist_ids {
+        if let Some(playlist_obj) = playlist_map.get(&playlist_id) {
+            if let Some(attrs) = playlist_obj.get("attributes").and_then(|v| v.as_object()) {
+                if let Some(name) = attrs.get("name").and_then(|v| v.as_str()) {
+                    let number_of_items = attrs.get("numberOfItems")
+                        .and_then(|v| v.as_u64())
+                        .map(|n| n as u32);
+
+                    playlists.push(Playlist {
+                        uuid: playlist_id.clone(),
+                        title: name.to_string(),
+                        number_of_tracks: number_of_items,
+                        created: None,
+                        added_at: None,
+                    });
+
+                    tracing::debug!("Parsed playlist: {} ({} items)", name, number_of_items.unwrap_or(0));
+                }
+            }
+        }
+    }
+
+    let total = api_resp.get("data")
+        .and_then(|v| v.get("attributes"))
+        .and_then(|v| v.get("numberOfItems"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(playlists.len() as u64) as u32;
+
+    tracing::debug!("Playlist parsing complete: {} playlists parsed (total: {})", playlists.len(), total);
+
+    Ok((playlists, total))
 }
 
 pub struct ApiClient {
@@ -461,25 +659,46 @@ impl ApiClient {
 
     // ── Playlists ─────────────────────────────────────────────────────────────
 
-    pub async fn get_user_playlists(&self, offset: u32, limit: u32) -> Result<Page<Playlist>> {
-        let uid = self.uid()?;
-        self.get(
-            &format!("/users/{uid}/playlists"),
-            &[
-                ("limit", limit.to_string()),
-                ("offset", offset.to_string()),
-            ],
-        )
-        .await
-    }
+    pub async fn get_favorite_playlists(&self) -> Result<Page<FavoritePlaylistEntry>> {
+        tracing::debug!("Retrieving user's favorite playlists");
 
-    pub async fn get_favorite_playlists(&self, limit: u32) -> Result<Page<FavoritePlaylistEntry>> {
-        let uid = self.uid()?;
-        self.get(
-            &format!("/users/{uid}/favorites/playlists"),
-            &[("limit", limit.to_string()), ("offset", "0".to_string())],
-        )
-        .await
+        let token = self.token.read().await.clone();
+        let url = format!("{OPENAPI_BASE}/userCollectionPlaylists/me?locale=en-US&include=items.items");
+
+        tracing::debug!("API request: GET /userCollectionPlaylists/me");
+
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        tracing::debug!("API response: {} /userCollectionPlaylists/me", status);
+
+        if !status.is_success() {
+            let body = resp.text().await?;
+            tracing::error!("API error {} on /userCollectionPlaylists/me: {}", status, body);
+            anyhow::bail!("HTTP {}", status);
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        let (playlists, total) = parse_v2_user_playlists(&api_resp)?;
+        tracing::debug!("Retrieved {} favorite playlists (total: {})", playlists.len(), total);
+
+        let entries = playlists.into_iter().map(|p| FavoritePlaylistEntry {
+            created: p.added_at.clone(),
+            playlist: p,
+        }).collect();
+
+        Ok(Page {
+            items: entries,
+            total,
+        })
     }
 
     pub async fn save_playlist(&self, uuid: &str) -> Result<()> {
@@ -492,14 +711,26 @@ impl ApiClient {
         self.delete_openapi_json("/userCollectionPlaylists/me/relationships/items", &body).await
     }
 
-    pub async fn get_playlist_tracks(&self, uuid: &str, offset: u32, limit: u32) -> Result<Page<Track>> {
+    pub async fn get_playlist_tracks(&self, uuid: &str, next_url: Option<&str>) -> Result<(Vec<Track>, u32, Option<String>)> {
         let token = self.token.read().await.clone();
-        let url = format!("{OPENAPI_BASE}/playlists/{uuid}?countryCode=US&include=items.artists&offset={offset}&limit={limit}");
 
-        tracing::debug!("API request: GET /playlists/{uuid} with include=items.artists");
+        let url = if let Some(next) = next_url {
+            // Use the next URL provided by the previous response
+            // Ensure it includes the include=items.artists parameter
+            let base_url = format!("{OPENAPI_BASE}{}", next);
+            if base_url.contains("include=") {
+                base_url
+            } else {
+                format!("{}&include=items.artists", base_url)
+            }
+        } else {
+            // Initial request - build the first page URL
+            format!("{OPENAPI_BASE}/playlists/{uuid}?countryCode=US&include=items.artists")
+        };
 
-        let resp = self
-            .http
+        tracing::debug!("Fetching playlist tracks from: {}", url);
+
+        let resp = self.http
             .get(&url)
             .bearer_auth(&token)
             .header("Accept", "application/vnd.api+json")
@@ -518,11 +749,60 @@ impl ApiClient {
         let body = resp.text().await?;
         let api_resp: serde_json::Value = serde_json::from_str(&body)?;
 
-        let (tracks, total) = parse_v2_playlist_tracks(&api_resp)?;
-        Ok(Page {
-            items: tracks,
-            total,
-        })
+
+        let (tracks, total, next_url) = parse_v2_playlist_tracks(&api_resp)?;
+        if let Some(first_track) = tracks.first() {
+            if let Some(ref url) = next_url {
+                tracing::debug!("Loaded {} tracks, first: '{}', has next page", tracks.len(), first_track.title);
+            } else {
+                tracing::debug!("Loaded {} tracks, first: '{}', NO more pages", tracks.len(), first_track.title);
+            }
+        }
+        Ok((tracks, total, next_url))
+    }
+
+    pub async fn get_playlist_relationship_items(&self, next_url: &str, total: u32) -> Result<(Vec<Track>, u32, Option<String>)> {
+        let token = self.token.read().await.clone();
+
+        // Ensure the next URL includes the include=items.artists parameter
+        let url = {
+            let base_url = format!("{OPENAPI_BASE}{}", next_url);
+            if base_url.contains("include=") {
+                base_url
+            } else {
+                format!("{}&include=items.artists", base_url)
+            }
+        };
+        tracing::debug!("Fetching playlist relationship items from: {}", url);
+
+        let resp = self.http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        tracing::debug!("API response: {} /relationships/items", status);
+
+        if !status.is_success() {
+            let body = resp.text().await?;
+            tracing::error!("API error {} on /relationships/items: {}", status, body);
+            anyhow::bail!("HTTP {}", status);
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        let (tracks, _, next_url) = parse_playlist_relationship_items(&api_resp, total)?;
+        if let Some(first_track) = tracks.first() {
+            if next_url.is_some() {
+                tracing::debug!("Loaded {} tracks, first: '{}', has next page", tracks.len(), first_track.title);
+            } else {
+                tracing::debug!("Loaded {} tracks, first: '{}', NO more pages", tracks.len(), first_track.title);
+            }
+        }
+        Ok((tracks, total, next_url))
     }
 
     // ── Favorites ─────────────────────────────────────────────────────────────
@@ -1000,7 +1280,8 @@ impl ApiClient {
         let body = resp.text().await?;
         let api_resp: serde_json::Value = serde_json::from_str(&body)?;
 
-        parse_v2_playlist_tracks(&api_resp)
+        let (tracks, total, _) = parse_v2_playlist_tracks(&api_resp)?;
+        Ok((tracks, total))
     }
 
     pub async fn get_new_release_mixes(&self) -> Result<Vec<Playlist>> {
