@@ -368,7 +368,6 @@ impl ApiClient {
                 title: attr.name.clone(),
                 number_of_tracks: attr.number_of_items,
                 created: None,
-                description: None,
                 added_at,
             })
         }).collect();
@@ -910,9 +909,6 @@ impl ApiClient {
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                let description = attrs.get("description")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
                                 let number_of_tracks = attrs.get("numberOfItems")
                                     .and_then(|v| v.as_u64())
                                     .map(|n| n as u32);
@@ -922,7 +918,6 @@ impl ApiClient {
                                     title,
                                     number_of_tracks,
                                     created: None,
-                                    description,
                                     added_at: None,
                                 });
                             }
@@ -941,9 +936,6 @@ impl ApiClient {
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
-                        let description = attrs.get("description")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
                         let number_of_tracks = attrs.get("numberOfItems")
                             .and_then(|v| v.as_u64())
                             .map(|n| n as u32);
@@ -953,7 +945,6 @@ impl ApiClient {
                             title,
                             number_of_tracks,
                             created: None,
-                            description,
                             added_at: None,
                         });
                     }

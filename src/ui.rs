@@ -623,25 +623,8 @@ fn render_home_section(
             };
 
             let prefix = if is_selected { "▶ " } else { "  " };
-            let mut line_spans = vec![
-                Span::styled(format!("{}{}", prefix, item.title), title_style),
-            ];
-
-            if let Some(ref desc) = item.description {
-                if !desc.is_empty() {
-                    let desc_style = if is_selected {
-                        Style::default().fg(ACCENT).bg(HIGHLIGHT_BG)
-                    } else if focused {
-                        Style::default().fg(ACCENT)
-                    } else {
-                        Style::default().fg(DIM)
-                    };
-                    line_spans.push(Span::raw("\n"));
-                    line_spans.push(Span::styled(format!("    {}", desc), desc_style));
-                }
-            }
-
-            ListItem::new(Line::from(line_spans))
+            let line = Line::from(Span::styled(format!("{}{}", prefix, item.title), title_style));
+            ListItem::new(line)
         })
         .collect();
 
