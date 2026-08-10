@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2025 Ryan Cohan
 
-use std::io;
 use anyhow::Result;
 use crossterm::{
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
+use std::io;
 use tokio::sync::mpsc;
 
 mod api;
@@ -60,14 +60,13 @@ fn main() -> Result<()> {
 
     // Initialize logging to file
     if let Ok(home) = std::env::var("HOME") {
-        let log_dir = std::path::PathBuf::from(home)
-            .join(".local/share/riptide");
+        let log_dir = std::path::PathBuf::from(home).join(".local/share/riptide");
         let _ = std::fs::create_dir_all(&log_dir);
         let file_appender = tracing_appender::rolling::daily(&log_dir, "riptide.log");
 
         let log_level = std::env::var("RIPTIDE_LOG_LEVEL")
             .or_else(|_| std::env::var("RUST_LOG"))
-            .unwrap_or_else(|_| "riptide=debug,hyper=warn,hyper_util=warn,reqwest=warn,tokio=warn,tracing_subscriber=warn".to_string());
+            .unwrap_or_else(|_| "warn,riptide=debug".to_string());
         let env_filter = tracing_subscriber::EnvFilter::new(&log_level);
 
         let _ = tracing_subscriber::fmt()
@@ -82,11 +81,13 @@ fn main() -> Result<()> {
             .init();
     }
 
+    tracing::info!("╔══════════════════════════════════════════════════════════════╗");
+    tracing::info!("║                      🎵 RIPTIDE STARTING 🎵                   ║");
+    tracing::info!("╚══════════════════════════════════════════════════════════════╝");
     tracing::info!("Loading configuration...");
     let mut config = api::auth::load_config()?;
     api::auth::ensure_auth(&mut config)?;
-    tracing::info!("Authentication successful");
-    tracing::info!("Starting Riptide v{}", env!("CARGO_PKG_VERSION"));
+    tracing::info!("Authentication successful (v{})", env!("CARGO_PKG_VERSION"));
 
     // Channels: TUI → ApiWorker and TUI → PlayerWorker
     let (api_req_tx, api_req_rx) = mpsc::unbounded_channel();
@@ -96,7 +97,8 @@ fn main() -> Result<()> {
     let (player_evt_lastfm_tx, player_evt_lastfm_rx) = mpsc::unbounded_channel();
 
     // Channels for MPRIS: TUI → MPRIS server (state updates) and MPRIS → TUI (control commands)
-    let (mpris_state_tx, mpris_state_rx) = tokio::sync::watch::channel(mpris::MprisState::default());
+    let (mpris_state_tx, mpris_state_rx) =
+        tokio::sync::watch::channel(mpris::MprisState::default());
     let (mpris_cmd_tx, mpris_cmd_rx) = mpsc::unbounded_channel::<mpris::MprisCmd>();
 
     // Channels for Last.fm worker: TUI → Last.fm and Last.fm → TUI

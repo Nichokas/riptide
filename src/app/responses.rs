@@ -71,7 +71,9 @@ impl App {
                         self.fetch_now_playing_metadata();
                     }
                 }
-                self.load_favorites();
+                if self.favorites.should_load_more() {
+                    self.load_favorites();
+                }
             }
 
             ApiResponse::ArtistTopTracks { artist_id, tracks } => {
