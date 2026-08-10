@@ -12,7 +12,6 @@ use super::models::*;
 
 const BASE: &str = "https://api.tidal.com/v1";
 const OPENAPI_BASE: &str = "https://openapi.tidal.com/v2";
-const CLIENT_VERSION: &str = "2025.7.16";
 
 // Private types for the openapi.tidal.com/v2 JSON:API collection endpoints.
 #[derive(serde::Deserialize)]
@@ -253,7 +252,6 @@ impl ApiClient {
             .http
             .get(&url)
             .bearer_auth(&token)
-            .header("x-tidal-client-version", CLIENT_VERSION)
             .query(&all_params)
             .send()
             .await
@@ -272,7 +270,6 @@ impl ApiClient {
                 .http
                 .get(&url)
                 .bearer_auth(&new_access)
-                .header("x-tidal-client-version", CLIENT_VERSION)
                 .query(&all_params)
                 .send()
                 .await?
@@ -394,7 +391,6 @@ impl ApiClient {
         self.http
             .post(&url)
             .bearer_auth(&token)
-            .header("x-tidal-client-version", CLIENT_VERSION)
             .query(&all_params)
             .form(form)
             .send()
@@ -670,7 +666,6 @@ impl ApiClient {
         self.http
             .delete(&url)
             .bearer_auth(&token)
-            .header("x-tidal-client-version", CLIENT_VERSION)
             .query(&all_params)
             .send()
             .await
@@ -706,8 +701,21 @@ impl ApiClient {
     }
 
     pub async fn get_stream_url(&self, track_id: u64) -> Result<String> {
-        const QUALITIES: &[&str] = &["HI_RES_LOSSLESS", "LOSSLESS", "HIGH"];
+        // Quality fallback chain for streaming.
+        //
+        // | Quality          | Manifest MIME type         | Container   | Actual codec  |
+        // |------------------|----------------------------|-------------|---------------|
+        // | LOSSLESS         | application/vnd.tidal.bts  | audio/flac  | FLAC (raw)    |
+        // | HI_RES_LOSSLESS  | application/dash+xml       | audio/mp4   | FLAC or AAC   |
+        // | HIGH             | application/vnd.tidal.bts  | audio/mp4   | AAC           |
+        //
+        // LOSSLESS → BTS manifest with `codecs: "flac"` → guaranteed raw FLAC.
+        // HI_RES_LOSSLESS → DASH manifest where codecs MAY be "flac" or "mp4a.40.2".
+        // Strategy: try LOSSLESS first (guaranteed FLAC), then HI_RES_LOSSLESS
+        // (only if its DASH codec is actually FLAC), then HIGH as last resort.
+        const QUALITIES: &[&str] = &["LOSSLESS", "HI_RES_LOSSLESS", "HIGH"];
         let path = format!("/tracks/{track_id}/playbackinfopostpaywall");
+        let debug = std::env::var("RIPTIDE_QUALITY_DEBUG").is_ok();
 
         for &quality in QUALITIES {
             let result: Result<PlaybackInfo> = self.get(
@@ -721,27 +729,124 @@ impl ApiClient {
 
             match result {
                 Ok(info) => {
+                    let mime = info.manifest_mime_type.clone();
+                    if debug {
+                        let aq = info.audio_quality.as_deref().unwrap_or("?");
+                        eprintln!(
+                            "[quality] track {track_id}: requested {quality}, \
+                             server returned manifestMimeType={mime}, \
+                             audioQuality={aq} (200 OK)",
+                        );
+                    }
+
                     let bytes = base64::engine::general_purpose::STANDARD
                         .decode(&info.manifest)
                         .context("base64 decode of manifest")?;
-                    match info.manifest_mime_type.as_str() {
+
+                    match mime.as_str() {
                         "application/vnd.tidal.bts" => {
                             let manifest: BtsManifest = serde_json::from_slice(&bytes)
                                 .context("parse BTS manifest")?;
-                            if let Some(url) = manifest.urls.into_iter().next() {
-                                return Ok(url);
+
+                            if manifest.urls.is_empty() {
+                                if debug {
+                                    eprintln!("[quality] track {track_id}: BTS manifest has empty urls — skip");
+                                }
+                                continue;
+                            }
+
+                            let codec = manifest.codecs.as_deref().unwrap_or("(missing)");
+                            if debug {
+                                eprintln!(
+                                    "[quality] track {track_id}: BTS codecs={codec}, \
+                                     urls={} segment(s)",
+                                    manifest.urls.len(),
+                                );
+                            }
+
+                            // BTS with FLAC codec → real lossless.
+                            if manifest.is_flac() {
+                                if debug {
+                                    eprintln!("[quality] track {track_id}: ✓ FLAC stream accepted ({quality})");
+                                }
+                                if manifest.urls.len() == 1 {
+                                    return Ok(manifest.urls.into_iter().next().unwrap());
+                                }
+                                let m3u8 = build_flac_m3u8(track_id, &manifest.urls);
+                                return Ok(m3u8);
+                            }
+
+                            // BTS with non-FLAC codec.
+                            // For LOSSLESS requests: the API downgraded us → skip.
+                            // For HIGH requests: this is expected AAC → accept.
+                            if quality == "HIGH" {
+                                if debug {
+                                    eprintln!("[quality] track {track_id}: accepting AAC stream (HIGH)");
+                                }
+                                if let Some(url) = manifest.urls.into_iter().next() {
+                                    return Ok(url);
+                                }
+                            } else {
+                                if debug {
+                                    eprintln!(
+                                        "[quality] track {track_id}: BTS codec is '{codec}' \
+                                         (not flac) for {quality} request — falling through",
+                                    );
+                                }
+                                continue;
                             }
                         }
                         "application/dash+xml" => {
                             let xml = String::from_utf8_lossy(&bytes);
-                            let path = dash_to_hls(track_id, &xml)
+
+                            let sets = find_adaptation_sets(&xml);
+                            let has_flac = sets.iter().any(|s| s.codecs == "flac");
+
+                            if debug {
+                                let codecs: Vec<&str> = sets.iter().map(|s| s.codecs.as_str()).collect();
+                                eprintln!(
+                                    "[quality] track {track_id}: DASH with {} AdaptationSet(s), \
+                                     codecs={:?}, has_flac={has_flac}",
+                                    sets.len(), codecs,
+                                );
+                            }
+
+                            if (quality == "LOSSLESS" || quality == "HI_RES_LOSSLESS") && !has_flac {
+                                if debug {
+                                    eprintln!(
+                                        "[quality] track {track_id}: DASH has no FLAC codec \
+                                         — falling through to next tier",
+                                    );
+                                }
+                                continue;
+                            }
+
+                            if debug {
+                                eprintln!("[quality] track {track_id}: ✓ DASH/FLAC accepted ({quality})");
+                            }
+                            let hls = dash_to_hls(track_id, &xml)
                                 .context("convert DASH manifest to HLS")?;
-                            return Ok(path);
+                            return Ok(hls);
                         }
-                        _ => {}
+                        _ => {
+                            if debug {
+                                eprintln!(
+                                    "[quality] track {track_id}: unknown manifest MIME type '{mime}' — skip",
+                                );
+                            }
+                            continue;
+                        }
                     }
                 }
                 Err(e) => {
+                    if debug {
+                        let status = e.downcast_ref::<reqwest::Error>()
+                            .and_then(|re| re.status());
+                        eprintln!(
+                            "[quality] track {track_id}: {quality} request failed \
+                             (status={status:?}): {e}",
+                        );
+                    }
                     let status = e.downcast_ref::<reqwest::Error>()
                         .and_then(|re| re.status());
                     let entitlement_denied = matches!(
@@ -914,28 +1019,112 @@ impl ApiClient {
     }
 }
 
+// ── Multi-segment FLAC playlist ────────────────────────────────────────────────
+
+/// Build a simple M3U8 playlist for multi-segment raw FLAC URLs so mpv can
+/// play them gaplessly in sequence.
+fn build_flac_m3u8(track_id: u64, urls: &[String]) -> String {
+    let mut m3u8 = String::from("#EXTM3U\n#EXT-X-VERSION:3\n");
+    // Each segment is a standalone FLAC file; mpv handles concatenation natively.
+    for url in urls {
+        // We don't know exact durations upfront, but mpv will determine them
+        // from the FLAC stream headers. Use a generous placeholder.
+        m3u8.push_str("#EXTINF:10.0,\n");
+        m3u8.push_str(url);
+        m3u8.push('\n');
+    }
+    m3u8.push_str("#EXT-X-ENDLIST\n");
+
+    let playlist_path = format!("/tmp/riptide_hls_{track_id}.m3u8");
+    let _ = std::fs::write(&playlist_path, &m3u8);
+    format!("http://127.0.0.1:{}/{track_id}.m3u8", crate::manifest::PORT)
+}
+
 // ── DASH → HLS conversion ─────────────────────────────────────────────────────
 
+/// Represents a single `<AdaptationSet>` found in the DASH manifest.
+struct DashAdaptationSet {
+    /// The `codecs` attribute from the AdaptationSet or Representation element.
+    codecs: String,
+    /// Position of this AdaptationSet in the original XML (byte offset of opening tag).
+    _offset: usize,
+}
+
+/// Find all AdaptationSet elements and their codec info.
+/// Returns them so we can prefer FLAC over AAC.
+fn find_adaptation_sets(xml: &str) -> Vec<DashAdaptationSet> {
+    let mut sets = Vec::new();
+    let mut rest = xml;
+    while let Some(pos) = rest.find("<AdaptationSet") {
+        let set_start = pos;
+        let fragment = &rest[pos..];
+        // Find codecs in the AdaptationSet or its Representation child.
+        let codecs = dash_attr(fragment, "codecs").unwrap_or_default();
+        let offset = xml.len() - rest.len() + set_start;
+        sets.push(DashAdaptationSet { codecs, _offset: offset });
+        // Advance past this AdaptationSet to find the next one.
+        if let Some(end) = fragment.find("</AdaptationSet>") {
+            rest = &fragment[end + "</AdaptationSet>".len()..];
+        } else {
+            break;
+        }
+    }
+    sets
+}
+
 /// Convert a Tidal DASH manifest to an HLS playlist served via local HTTP.
+///
+/// When the manifest contains multiple AdaptationSets (e.g. AAC and FLAC),
+/// we prefer the FLAC one so mpv plays real lossless audio.
 fn dash_to_hls(track_id: u64, xml: &str) -> anyhow::Result<String> {
-    let init_url = dash_attr(xml, "initialization")
+    // If there are multiple AdaptationSets, try to find a FLAC one.
+    let adaptation_sets = find_adaptation_sets(xml);
+
+    // Determine which region of the XML to use for attribute extraction.
+    // If we have a FLAC adaptation set, extract attributes from within it.
+    let search_region = if adaptation_sets.len() > 1 {
+        if let Some(flac_set) = adaptation_sets.iter().find(|s| s.codecs == "flac") {
+            // Extract from just this AdaptationSet's region of the XML.
+            let start = flac_set._offset;
+            let rest = &xml[start..];
+            if let Some(end) = rest.find("</AdaptationSet>") {
+                &rest[..end + "</AdaptationSet>".len()]
+            } else {
+                xml
+            }
+        } else {
+            xml
+        }
+    } else {
+        xml
+    };
+
+    let codecs = dash_attr(search_region, "codecs").unwrap_or_default();
+
+    let init_url = dash_attr(search_region, "initialization")
         .context("no initialization URL in DASH manifest")?;
-    let media_tmpl = dash_attr(xml, "media")
+    let media_tmpl = dash_attr(search_region, "media")
         .context("no media template in DASH manifest")?;
-    let timescale: f64 = dash_attr(xml, "timescale")
+    let timescale: f64 = dash_attr(search_region, "timescale")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1.0);
-    let start_num: u64 = dash_attr(xml, "startNumber")
+    let start_num: u64 = dash_attr(search_region, "startNumber")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
 
-    let durations = dash_segment_durations(xml, timescale);
+    let durations = dash_segment_durations(search_region, timescale);
     anyhow::ensure!(!durations.is_empty(), "no segments in DASH manifest");
 
     let target = durations.iter().cloned().fold(0f64, f64::max).ceil() as u64;
     let mut m3u8 = format!(
-        "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:{target}\n#EXT-X-MAP:URI=\"{init_url}\"\n"
+        "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:{target}\n"
     );
+    // Include codec info so mpv knows what to expect.
+    if !codecs.is_empty() {
+        m3u8.push_str(&format!("#EXT-X-CODECS:{codecs}\n"));
+    }
+    m3u8.push_str(&format!("#EXT-X-MAP:URI=\"{init_url}\"\n"));
+
     for (i, dur) in durations.iter().enumerate() {
         m3u8.push_str(&format!("#EXTINF:{dur:.5},\n"));
         m3u8.push_str(&media_tmpl.replace("$Number$", &(start_num + i as u64).to_string()));

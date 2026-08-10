@@ -69,12 +69,6 @@ pub struct Album {
     pub added_at: Option<String>,
 }
 
-impl std::fmt::Display for Album {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.title)
-    }
-}
-
 impl Album {
     pub fn quality_badge(&self) -> Option<&'static str> {
         let tags = self.media_metadata.as_ref().map(|m| m.tags.as_slice()).unwrap_or(&[]);
@@ -203,16 +197,8 @@ pub struct Playlist {
     /// Creation date returned by the API for owned playlists.
     #[serde(default)]
     pub created: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
     #[serde(default, skip_deserializing)]
     pub added_at: Option<String>,
-}
-
-impl std::fmt::Display for Playlist {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.title)
-    }
 }
 
 impl Playlist {
@@ -265,12 +251,50 @@ pub struct PlaybackInfo {
     #[serde(rename = "manifestMimeType")]
     pub manifest_mime_type: String,
     pub manifest: String,
+    #[allow(dead_code)]
+    #[serde(rename = "audioQuality", default)]
+    pub audio_quality: Option<String>,
+    #[allow(dead_code)]
+    #[serde(rename = "audioMode", default)]
+    pub audio_mode: Option<String>,
+    #[allow(dead_code)]
+    #[serde(rename = "bitDepth", default)]
+    pub bit_depth: Option<i32>,
+    #[allow(dead_code)]
+    #[serde(rename = "sampleRate", default)]
+    pub sample_rate: Option<i32>,
 }
 
-/// Decoded content of a `application/vnd.tidal.bts` manifest
+/// Decoded content of a `application/vnd.tidal.bts` manifest.
+///
+/// For LOSSLESS quality the `mimeType` is `"audio/flac"` and `codecs` is `"flac"`.
+/// For HIGH / LOW the codecs is something like `"mp4a.40.2"` (AAC).
 #[derive(Debug, Deserialize)]
 pub struct BtsManifest {
+    #[allow(dead_code)]
+    #[serde(rename = "mimeType", default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub codecs: Option<String>,
+    #[allow(dead_code)]
+    #[serde(rename = "encryptionType", default)]
+    pub encryption_type: Option<String>,
     pub urls: Vec<String>,
+}
+
+impl BtsManifest {
+    /// True when the manifest's codec is FLAC (i.e. real lossless).
+    pub fn is_flac(&self) -> bool {
+        self.codecs.as_deref() == Some("flac")
+    }
+
+    /// True when the manifest codec is an AAC variant.
+    #[allow(dead_code)]
+    pub fn is_aac(&self) -> bool {
+        self.codecs.as_deref()
+            .map(|c| c.starts_with("mp4a"))
+            .unwrap_or(false)
+    }
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
@@ -335,4 +359,10 @@ pub struct Config {
     /// Last.fm scrobbling configuration
     #[serde(default)]
     pub lastfm: crate::lastfm::LastfmConfig,
+    /// Tracks which client credentials / auth method was used.
+    /// 0 = pre-migration (AAC-only, form-field auth, old client ID).
+    /// 1 = tiddl credentials + HTTP Basic Auth (lossless-capable).
+    /// Bumped to force re-auth when credentials or auth method change.
+    #[serde(default)]
+    pub auth_generation: u32,
 }
