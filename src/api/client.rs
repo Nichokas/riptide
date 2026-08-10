@@ -637,17 +637,15 @@ impl ApiClient {
 
     /// Fetch raw bytes from a public URL (e.g. Tidal's cover art CDN).
     pub async fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>> {
-        tracing::debug!("Fetching image bytes from CDN");
         let resp = self.http.get(url).send().await?;
         let status = resp.status();
-        tracing::debug!("Image fetch response: {}", status.as_u16());
 
         let bytes = resp.error_for_status().map_err(|e| {
-            tracing::error!("Failed to fetch image: {}", e);
+            tracing::warn!("Failed to fetch bytes ({}): {}", status.as_u16(), e);
             e
         })?.bytes().await?;
 
-        tracing::debug!("Image fetched successfully, size: {} bytes", bytes.len());
+        tracing::debug!("Fetched {} bytes", bytes.len());
         Ok(bytes.to_vec())
     }
 

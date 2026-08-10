@@ -67,7 +67,7 @@ fn main() -> Result<()> {
 
         let log_level = std::env::var("RIPTIDE_LOG_LEVEL")
             .or_else(|_| std::env::var("RUST_LOG"))
-            .unwrap_or_else(|_| "riptide=debug,warn".to_string());
+            .unwrap_or_else(|_| "riptide=debug,hyper=warn,hyper_util=warn,reqwest=warn,tokio=warn,tracing_subscriber=warn".to_string());
         let env_filter = tracing_subscriber::EnvFilter::new(&log_level);
 
         let _ = tracing_subscriber::fmt()
@@ -75,12 +75,18 @@ fn main() -> Result<()> {
             .with_ansi(false)
             .with_env_filter(env_filter)
             .with_thread_ids(false)
+            .with_target(false)
+            .with_thread_names(false)
+            .with_file(false)
+            .with_line_number(false)
             .init();
     }
 
-    // Load config and ensure authentication (blocking, before TUI)
+    tracing::info!("Loading configuration...");
     let mut config = api::auth::load_config()?;
     api::auth::ensure_auth(&mut config)?;
+    tracing::info!("Authentication successful");
+    tracing::info!("Starting Riptide v{}", env!("CARGO_PKG_VERSION"));
 
     // Channels: TUI → ApiWorker and TUI → PlayerWorker
     let (api_req_tx, api_req_rx) = mpsc::unbounded_channel();
@@ -149,6 +155,12 @@ fn main() -> Result<()> {
     // their loops. Joining ensures PlayerWorker reaches child.kill() before we return.
     drop(app);
     let _ = worker_thread.join();
+
+    if result.is_ok() {
+        tracing::info!("Application shutdown complete");
+    } else {
+        tracing::error!("Application error: {:?}", result);
+    }
 
     result
 }
