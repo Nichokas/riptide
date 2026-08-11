@@ -74,6 +74,7 @@ impl App {
                 if self.favorites.should_load_more() {
                     self.load_favorites();
                 }
+                self.rebuild_favorite_track_ids();
             }
 
             ApiResponse::ArtistTopTracks { artist_id, tracks } => {
@@ -423,6 +424,7 @@ impl App {
                 self.favorites.total = self.favorites.total.saturating_sub(1);
                 self.favorites.selected = self.favorites.selected
                     .min(self.favorites.items.len().saturating_sub(1));
+                self.rebuild_favorite_track_ids();
             }
 
             ApiResponse::ArtistUnfollowed { artist_id } => {

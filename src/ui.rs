@@ -217,12 +217,13 @@ fn render_queue(f: &mut Frame, app: &App, area: Rect) {
         }
         let is_cur = i == current;
         let is_cursor = focused && i == cursor && !app.help_active;
+        let heart = if app.favorite_track_ids.contains(&track.id) { " ❤" } else { "" };
         let (title_line, line_style) = if is_cur {
-            (format!("♪ {}", track.title), Style::default().fg(Color::Rgb(180, 200, 255)).add_modifier(Modifier::BOLD))
+            (format!("♪ {}{}", track.title, heart), Style::default().fg(Color::Rgb(180, 200, 255)).add_modifier(Modifier::BOLD))
         } else if is_cursor {
-            (format!("▶ {}", track.title), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+            (format!("▶ {}{}", track.title, heart), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
         } else {
-            (track.title.clone(), Style::default().fg(Color::White))
+            (format!("{}{}", track.title, heart), Style::default().fg(Color::White))
         };
 
         f.render_widget(
@@ -521,13 +522,10 @@ fn render_content(f: &mut Frame, app: &App, area: Rect) {
         Tab::Artists => render_artist_list(f, app, area),
         Tab::Albums => render_fav_albums_list(f, app, area),
         Tab::Playlists => render_playlist_list(f, app, area),
-        Tab::Favorites => render_track_list(
-            f, app,
-            &app.favorites,
-            true,
-            area,
-            "Favorites",
-        ),
+        Tab::Favorites => {
+            let title = format!(" Favorites ({}) ", app.favorites.items.len());
+            render_track_list(f, app, &app.favorites, true, area, &title);
+        }
         Tab::Search => render_search_results(f, app, area),
     }
 }
@@ -992,7 +990,13 @@ fn render_artist_tracks_full(
             let badge = track.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
             let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
 
-            ListItem::new(Line::from(vec![title_span, badge_span]))
+            let heart = if app.favorite_track_ids.contains(&track.id) {
+                Span::raw(" ❤")
+            } else {
+                Span::raw("")
+            };
+
+            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
         })
         .collect();
 
@@ -1223,7 +1227,7 @@ fn render_track_list(
 ) {
     let selected = tracks.selected;
     let block = Block::default()
-        .title(format!(" {title} ({}) ", tracks.items.len()))
+        .title(title)
         .borders(Borders::TOP)
         .border_style(Style::default().fg(ACCENT));
 
@@ -1262,7 +1266,13 @@ fn render_track_list(
             let badge = track.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
             let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
 
-            ListItem::new(Line::from(vec![title_span, badge_span]))
+            let heart = if app.favorite_track_ids.contains(&track.id) {
+                Span::raw(" ❤")
+            } else {
+                Span::raw("")
+            };
+
+            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
         })
         .collect();
 
@@ -1477,7 +1487,7 @@ fn render_playlist_detail(f: &mut Frame, app: &App, detail: &crate::app::Playlis
     let title = if detail.tracks.loading {
         format!(" Tracks {spinner} ")
     } else {
-        " Tracks ".to_string()
+        format!(" Tracks ({}) ", detail.tracks.items.len())
     };
     let tracks_focused = detail.focus == PlaylistDetailFocus::Tracks;
     render_track_list(f, app, &detail.tracks, tracks_focused, cols[1], &title);
@@ -1682,7 +1692,13 @@ fn render_search_pane_tracks(f: &mut Frame, app: &App, area: Rect) {
             let badge = t.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
             let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
 
-            ListItem::new(Line::from(vec![title_span, badge_span]))
+            let heart = if app.favorite_track_ids.contains(&t.id) {
+                Span::raw(" ❤")
+            } else {
+                Span::raw("")
+            };
+
+            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
         })
         .collect();
 
@@ -1803,8 +1819,9 @@ fn render_now_playing(f: &mut Frame, app: &App, area: Rect) {
                     }
                 }
             };
+            let heart = if app.favorite_track_ids.contains(&t.id) { " ❤" } else { "" };
             let mut lines = vec![
-                Line::from(Span::styled(t.title.as_str(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled(format!("{}{}", t.title, heart), Style::default().fg(Color::White).add_modifier(Modifier::BOLD))),
                 Line::from(Span::styled(t.all_artist_names(), Style::default().fg(Color::White))),
                 Line::from(Span::styled(t.album.title.as_str(), Style::default().fg(DIM))),
             ];

@@ -280,9 +280,8 @@ fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -
     let mut track_ids = Vec::new();
     if let Some(items_data) = api_resp.get("data").and_then(|v| v.as_array()) {
         tracing::debug!("Found items in data array, count: {}", items_data.len());
-        for (idx, item_ref) in items_data.iter().enumerate() {
+        for item_ref in items_data.iter() {
             if let Some(track_id) = item_ref.get("id").and_then(|v| v.as_str()) {
-                tracing::debug!("  Track {}: ID {}", idx, track_id);
                 track_ids.push(track_id.to_string());
             }
         }

@@ -25,6 +25,7 @@ impl App {
             self.favorites.items.insert(0, track.clone());
             self.favorites.total = self.favorites.total.saturating_add(1);
             self.favorites.selected = self.favorites.selected.saturating_add(1);
+            self.rebuild_favorite_track_ids();
         }
         self.set_status(format!("Added '{}' to favorites", track.title), StatusLevel::Info);
     }

@@ -11,6 +11,7 @@ mod responses;
 pub use state::*;
 pub use crate::playlist::{PlaylistDetail, PlaylistDetailFocus};
 
+use std::collections::HashSet;
 use tokio::sync::{mpsc, watch};
 use crate::api::ApiRequest;
 use crate::api::models::{Album, Artist, Playlist, Track};
@@ -35,6 +36,7 @@ pub struct App {
     pub fav_albums: StatefulList<Album>,
     pub playlists: StatefulList<Playlist>,
     pub favorites: StatefulList<Track>,
+    pub favorite_track_ids: HashSet<u64>,
     pub search:    SearchState,
     pub command:   CommandState,
     pub sort_palette:  SortPalette,
@@ -81,6 +83,7 @@ impl App {
             fav_albums:  StatefulList::default(),
             playlists:   StatefulList::default(),
             favorites:   StatefulList::default(),
+            favorite_track_ids: HashSet::new(),
             search:      SearchState::default(),
             command:     CommandState::default(),
             sort_palette:    SortPalette::default(),
@@ -142,6 +145,10 @@ impl App {
 
     pub(crate) fn set_status(&mut self, msg: String, level: StatusLevel) {
         self.status = Some((msg, level, std::time::Instant::now()));
+    }
+
+    pub(crate) fn rebuild_favorite_track_ids(&mut self) {
+        self.favorite_track_ids = self.favorites.items.iter().map(|t| t.id).collect();
     }
 
     /// Copy a share URL to the system clipboard and confirm via the status toast.
