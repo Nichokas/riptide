@@ -115,7 +115,7 @@ jobs:
           sha256sum riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz > riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz.sha256
 
       - name: Upload artifacts
-        uses: actions7upload-artifact@v7
+        uses: actions/upload-artifact@v7
         with:
           name: riptide-${{ github.ref_name }}-aarch64-apple-darwin
           path: |
