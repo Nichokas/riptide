@@ -8,7 +8,7 @@ pub mod models;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use client::ApiClient;
+use client::{ApiClient, SearchTrackPage, SearchArtistPage, SearchPlaylistPage};
 use models::*;
 
 // ── Request / Response types ──────────────────────────────────────────────────
@@ -31,7 +31,13 @@ pub enum ApiRequest {
     FetchPlaylistArt { uuid: String, cover_url: String },
     LoadPlaylistTracks { uuid: String, next_url: Option<String> },
     LoadMixTracks { uuid: String, offset: u32 },
-    Search { query: String },
+    SearchTracks { query: String },
+    SearchArtistsMain { query: String },
+    SearchPlaylistsMain { query: String },
+    SearchTracksNext { next_url: String },
+    SearchArtistsNext { next_url: String },
+    SearchPlaylistsNext { next_url: String },
+    SearchArtistByName { query: String },
     ResolveStreamUrl { track_id: u64 },
     FetchLyrics { track_id: u64 },
     FavoriteTrack { track_id: u64 },
@@ -44,7 +50,6 @@ pub enum ApiRequest {
     RemovePlaylist { uuid: String },
     TrackRadio { track_id: u64 },
     ArtistRadio { artist_id: u64 },
-    SearchArtists { query: String },
     LoadDailyMixes,
     LoadDiscoveryMixes,
     LoadNewReleases,
@@ -68,7 +73,9 @@ pub enum ApiResponse {
     PlaylistArt { uuid: String, image_data: Vec<u8> },
     ArtistBio { artist_id: u64, text: String },
     PlaylistTracks { uuid: String, tracks: Vec<Track>, total: u32, next_cursor: Option<String>, description: Option<String>, cover: Option<String> },
-    SearchResults(Box<SearchResponse>),
+    SearchTracks(SearchTrackPage),
+    SearchArtistsResults(SearchArtistPage),
+    SearchPlaylistsResults(SearchPlaylistPage),
     StreamUrl { track_id: u64, url: String },
     Lyrics {
         track_id: u64,
@@ -261,9 +268,18 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         }
 
         ApiRequest::FetchArtistArt { artist_id, picture_id } => {
-            let url = format!("https://resources.tidal.com/images/{}/320x320.jpg", picture_id.replace('-', "/"));
+            // picture_id can be either a direct URL (from v2 search) or an ID to construct (from v1 API)
+            let url = if picture_id.starts_with("http") {
+                picture_id.clone()
+            } else {
+                format!("https://resources.tidal.com/images/{}/320x320.jpg", picture_id.replace('-', "/"))
+            };
+            tracing::debug!("FetchArtistArt for artist {}: {}", artist_id, url);
             match client.fetch_bytes(&url).await {
-                Ok(data) => ApiResponse::ArtistArt { artist_id, image_data: data },
+                Ok(data) => {
+                    tracing::debug!("FetchArtistArt completed for artist {}: {} bytes", artist_id, data.len());
+                    ApiResponse::ArtistArt { artist_id, image_data: data }
+                },
                 Err(e) => ApiResponse::Error(format!("artist art: {e}")),
             }
         }
@@ -319,9 +335,39 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             }
         }
 
-        ApiRequest::Search { query } => match client.search(&query, 20).await {
-            Ok(results) => ApiResponse::SearchResults(Box::new(results)),
-            Err(e) => ApiResponse::Error(e.to_string()),
+        ApiRequest::SearchTracks { query } => match client.search_tracks(&query).await {
+            Ok(page) => ApiResponse::SearchTracks(page),
+            Err(e) => ApiResponse::Error(format!("search tracks: {e}")),
+        },
+
+        ApiRequest::SearchArtistsMain { query } => match client.search_artists(&query).await {
+            Ok(page) => ApiResponse::SearchArtistsResults(page),
+            Err(e) => ApiResponse::Error(format!("search artists: {e}")),
+        },
+
+        ApiRequest::SearchPlaylistsMain { query } => match client.search_playlists(&query).await {
+            Ok(page) => ApiResponse::SearchPlaylistsResults(page),
+            Err(e) => ApiResponse::Error(format!("search playlists: {e}")),
+        },
+
+        ApiRequest::SearchTracksNext { next_url } => match client.search_tracks_next(&next_url).await {
+            Ok(page) => ApiResponse::SearchTracks(page),
+            Err(e) => ApiResponse::Error(format!("search tracks pagination: {e}")),
+        },
+
+        ApiRequest::SearchArtistsNext { next_url } => match client.search_artists_next(&next_url).await {
+            Ok(page) => ApiResponse::SearchArtistsResults(page),
+            Err(e) => ApiResponse::Error(format!("search artists pagination: {e}")),
+        },
+
+        ApiRequest::SearchPlaylistsNext { next_url } => match client.search_playlists_next(&next_url).await {
+            Ok(page) => ApiResponse::SearchPlaylistsResults(page),
+            Err(e) => ApiResponse::Error(format!("search playlists pagination: {e}")),
+        },
+
+        ApiRequest::SearchArtistByName { query } => match client.search_artists(&query).await {
+            Ok(page) => ApiResponse::SearchedArtists(page.artists),
+            Err(e) => ApiResponse::Error(format!("search artists: {e}")),
         },
 
         ApiRequest::ResolveStreamUrl { track_id } => {
@@ -379,11 +425,6 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         ApiRequest::ArtistRadio { artist_id } => match client.get_artist_radio(artist_id, 25).await {
             Ok(page) => ApiResponse::RadioTracks { tracks: page.items },
             Err(e) => ApiResponse::Error(format!("radio: {e}")),
-        },
-
-        ApiRequest::SearchArtists { query } => match client.search_artists(&query, 10).await {
-            Ok(artists) => ApiResponse::SearchedArtists(artists),
-            Err(e) => ApiResponse::Error(format!("search artists: {e}")),
         },
 
         ApiRequest::LoadDailyMixes => match client.get_daily_mixes().await {

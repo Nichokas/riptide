@@ -2,6 +2,7 @@
 // Copyright (C) 2025 Ryan Cohan
 
 use crate::api::models::*;
+use crate::playlist::PlaylistDetail;
 use std::cell::Cell;
 
 // ── Tab ───────────────────────────────────────────────────────────────────────
@@ -73,7 +74,8 @@ impl ListViewport {
         offset
     }
 
-    pub fn reset(&self) {
+    #[allow(dead_code)]
+    pub(super) fn reset(&self) {
         self.offset.set(0);
     }
 
@@ -170,12 +172,6 @@ pub enum ArtistDetailFocus {
     Bio,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlaylistDetailFocus {
-    Tracks,
-    Description,
-}
-
 pub struct ArtistDetail {
     pub artist: Artist,
     pub tracks: StatefulList<Track>,
@@ -191,15 +187,6 @@ pub struct ArtistDetail {
 }
 
 // ── Playlist detail ───────────────────────────────────────────────────────────
-
-pub struct PlaylistDetail {
-    pub playlist: Playlist,
-    pub tracks: StatefulList<Track>,
-    pub focus: PlaylistDetailFocus,
-    pub art_bytes: Option<Vec<u8>>,
-    pub art_loading: bool,
-    pub description_scroll: u16,
-}
 
 // ── Home tab ──────────────────────────────────────────────────────────────────
 
@@ -267,144 +254,6 @@ pub enum View {
     AlbumDetail(AlbumDetail),
 }
 
-// ── Search state ──────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SearchPane {
-    Tracks,
-    Artists,
-    Playlists,
-}
-
-pub struct SearchState {
-    pub active: bool,
-    pub query: String,
-    pub tracks: Vec<Track>,
-    pub artists: Vec<Artist>,
-    pub playlists: Vec<Playlist>,
-    pub pane: SearchPane,
-    pub track_sel: usize,
-    pub artist_sel: usize,
-    pub playlist_sel: usize,
-    track_viewport: ListViewport,
-    artist_viewport: ListViewport,
-    playlist_viewport: ListViewport,
-    pub loading: bool,
-}
-
-impl Default for SearchState {
-    fn default() -> Self {
-        Self {
-            active: false,
-            query: String::new(),
-            tracks: Vec::new(),
-            artists: Vec::new(),
-            playlists: Vec::new(),
-            pane: SearchPane::Tracks,
-            track_sel: 0,
-            artist_sel: 0,
-            playlist_sel: 0,
-            track_viewport: ListViewport::default(),
-            artist_viewport: ListViewport::default(),
-            playlist_viewport: ListViewport::default(),
-            loading: false,
-        }
-    }
-}
-
-impl SearchState {
-    pub fn track_scroll_offset(&self, height: usize) -> usize {
-        self.track_viewport.offset(self.track_sel, self.tracks.len(), height)
-    }
-
-    pub fn artist_scroll_offset(&self, height: usize) -> usize {
-        self.artist_viewport.offset(self.artist_sel, self.artists.len(), height)
-    }
-
-    pub fn playlist_scroll_offset(&self, height: usize) -> usize {
-        self.playlist_viewport.offset(self.playlist_sel, self.playlists.len(), height)
-    }
-
-    pub fn reset_viewports(&self) {
-        self.track_viewport.reset();
-        self.artist_viewport.reset();
-        self.playlist_viewport.reset();
-    }
-
-    pub fn total_results(&self) -> usize {
-        self.tracks.len() + self.artists.len() + self.playlists.len()
-    }
-
-    pub fn pane_next(&mut self) {
-        let len = self.pane_len();
-        if len == 0 { return; }
-        match self.pane {
-            SearchPane::Tracks    => self.track_sel   = (self.track_sel   + 1).min(len - 1),
-            SearchPane::Artists   => self.artist_sel  = (self.artist_sel  + 1).min(len - 1),
-            SearchPane::Playlists => self.playlist_sel = (self.playlist_sel + 1).min(len - 1),
-        }
-    }
-
-    pub fn pane_prev(&mut self) {
-        match self.pane {
-            SearchPane::Tracks    => { if self.track_sel    > 0 { self.track_sel    -= 1; } }
-            SearchPane::Artists   => { if self.artist_sel   > 0 { self.artist_sel   -= 1; } }
-            SearchPane::Playlists => { if self.playlist_sel > 0 { self.playlist_sel -= 1; } }
-        }
-    }
-
-    pub fn pane_page_up(&mut self) {
-        match self.pane {
-            SearchPane::Tracks => {
-                self.track_sel = self.track_viewport.previous_page(self.track_sel, self.tracks.len())
-            }
-            SearchPane::Artists => {
-                self.artist_sel = self.artist_viewport.previous_page(self.artist_sel, self.artists.len())
-            }
-            SearchPane::Playlists => {
-                self.playlist_sel = self.playlist_viewport.previous_page(self.playlist_sel, self.playlists.len())
-            }
-        }
-    }
-
-    pub fn pane_page_down(&mut self) {
-        match self.pane {
-            SearchPane::Tracks => {
-                self.track_sel = self.track_viewport.next_page(self.track_sel, self.tracks.len())
-            }
-            SearchPane::Artists => {
-                self.artist_sel = self.artist_viewport.next_page(self.artist_sel, self.artists.len())
-            }
-            SearchPane::Playlists => {
-                self.playlist_sel = self.playlist_viewport.next_page(self.playlist_sel, self.playlists.len())
-            }
-        }
-    }
-
-    pub fn pane_len(&self) -> usize {
-        match self.pane {
-            SearchPane::Tracks    => self.tracks.len(),
-            SearchPane::Artists   => self.artists.len(),
-            SearchPane::Playlists => self.playlists.len(),
-        }
-    }
-
-    pub fn next_pane(&mut self) {
-        self.pane = match self.pane {
-            SearchPane::Tracks    => SearchPane::Artists,
-            SearchPane::Artists   => SearchPane::Playlists,
-            SearchPane::Playlists => SearchPane::Tracks,
-        };
-    }
-
-    pub fn prev_pane(&mut self) {
-        self.pane = match self.pane {
-            SearchPane::Tracks    => SearchPane::Playlists,
-            SearchPane::Artists   => SearchPane::Tracks,
-            SearchPane::Playlists => SearchPane::Artists,
-        };
-    }
-}
 
 // ── Sort palette ─────────────────────────────────────────────────────────────
 
