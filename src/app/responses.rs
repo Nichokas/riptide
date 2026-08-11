@@ -4,7 +4,7 @@
 use crate::api::{ApiRequest, ApiResponse};
 use crate::api::models::*;
 use crate::player::{PlayerCmd, PlayerEvent};
-use super::{App, SearchPane, StatusLevel, View};
+use super::{App, StatusLevel, View};
 
 impl App {
     pub fn handle_api_response(&mut self, resp: ApiResponse) {
@@ -276,16 +276,82 @@ impl App {
                 }
             }
 
-            ApiResponse::SearchResults(results) => {
-                self.search.loading = false;
-                self.search.tracks   = results.tracks.map(|p| p.items).unwrap_or_default();
-                self.search.artists  = results.artists.map(|p| p.items).unwrap_or_default();
-                self.search.playlists = results.playlists.map(|p| p.items).unwrap_or_default();
-                self.search.track_sel = 0;
-                self.search.artist_sel = 0;
-                self.search.playlist_sel = 0;
-                self.search.reset_viewports();
-                self.search.pane = SearchPane::Tracks;
+            ApiResponse::SearchTracks(page) => {
+                // If this is the first page (empty results), replace; otherwise append for pagination
+                if self.search.tracks.is_empty() {
+                    self.search.tracks = page.tracks;
+                    // Auto-load second page if available
+                    if let Some(next_url) = &page.next_url {
+                        self.search.tracks_awaiting_page2 = true;
+                        let _ = self.api_tx.send(ApiRequest::SearchTracksNext {
+                            next_url: next_url.clone()
+                        });
+                    } else {
+                        // No second page available, done loading
+                        self.search.loading = false;
+                    }
+                } else {
+                    // This is the second page, append and mark done
+                    self.search.tracks.extend(page.tracks);
+                    self.search.tracks_awaiting_page2 = false;
+                    // Check if all categories are done loading
+                    if !self.search.artists_awaiting_page2 && !self.search.playlists_awaiting_page2 {
+                        self.search.loading = false;
+                    }
+                }
+                self.search.tracks_next_url = page.next_url;
+            }
+
+            ApiResponse::SearchArtistsResults(page) => {
+                // If this is the first page (empty results), replace; otherwise append for pagination
+                if self.search.artists.is_empty() {
+                    self.search.artists = page.artists;
+                    // Auto-load second page if available
+                    if let Some(next_url) = &page.next_url {
+                        self.search.artists_awaiting_page2 = true;
+                        let _ = self.api_tx.send(ApiRequest::SearchArtistsNext {
+                            next_url: next_url.clone()
+                        });
+                    } else {
+                        // No second page available, done loading
+                        self.search.loading = false;
+                    }
+                } else {
+                    // This is the second page, append and mark done
+                    self.search.artists.extend(page.artists);
+                    self.search.artists_awaiting_page2 = false;
+                    // Check if all categories are done loading
+                    if !self.search.tracks_awaiting_page2 && !self.search.playlists_awaiting_page2 {
+                        self.search.loading = false;
+                    }
+                }
+                self.search.artists_next_url = page.next_url;
+            }
+
+            ApiResponse::SearchPlaylistsResults(page) => {
+                // If this is the first page (empty results), replace; otherwise append for pagination
+                if self.search.playlists.is_empty() {
+                    self.search.playlists = page.playlists;
+                    // Auto-load second page if available
+                    if let Some(next_url) = &page.next_url {
+                        self.search.playlists_awaiting_page2 = true;
+                        let _ = self.api_tx.send(ApiRequest::SearchPlaylistsNext {
+                            next_url: next_url.clone()
+                        });
+                    } else {
+                        // No second page available, done loading
+                        self.search.loading = false;
+                    }
+                } else {
+                    // This is the second page, append and mark done
+                    self.search.playlists.extend(page.playlists);
+                    self.search.playlists_awaiting_page2 = false;
+                    // Check if all categories are done loading
+                    if !self.search.tracks_awaiting_page2 && !self.search.artists_awaiting_page2 {
+                        self.search.loading = false;
+                    }
+                }
+                self.search.playlists_next_url = page.next_url;
             }
 
             ApiResponse::StreamUrl { track_id, url } => {

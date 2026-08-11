@@ -19,7 +19,7 @@ impl App {
         };
         self.view_stack.clear();
         if self.current_tab == Tab::Search {
-            self.search.active = true;
+            self.search.modal_open = true;
             self.search.query.clear();
         }
     }
@@ -35,7 +35,7 @@ impl App {
         };
         self.view_stack.clear();
         if self.current_tab == Tab::Search {
-            self.search.active = true;
+            self.search.modal_open = true;
             self.search.query.clear();
         }
     }
@@ -44,7 +44,7 @@ impl App {
         self.current_tab = tab;
         self.view_stack.clear();
         if self.current_tab == Tab::Search {
-            self.search.active = true;
+            self.search.modal_open = true;
             self.search.query.clear();
         }
     }
@@ -202,7 +202,7 @@ impl App {
         if artist_names.len() == 1 {
             let name = artist_names[0].clone();
             self.artist_selection.searching_for = Some(name.clone());
-            let _ = self.api_tx.send(ApiRequest::SearchArtists {
+            let _ = self.api_tx.send(ApiRequest::SearchArtistByName {
                 query: name,
             });
         } else {
@@ -217,7 +217,7 @@ impl App {
             self.artist_selection.active = false;
             self.artist_selection.searching_for = Some(name.clone());
             self.artist_selection.artist_names.clear();
-            let _ = self.api_tx.send(ApiRequest::SearchArtists {
+            let _ = self.api_tx.send(ApiRequest::SearchArtistByName {
                 query: name,
             });
         }

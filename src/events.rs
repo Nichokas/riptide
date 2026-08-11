@@ -6,7 +6,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::api::{ApiRequest, ApiResponse};
-use crate::app::{App, ArtistDetailFocus, PlaylistDetailFocus, SearchPane, SortPalette, Tab, View};
+use crate::app::{App, ArtistDetailFocus, SortPalette, Tab, View};
+use crate::search::SearchPane;
+use crate::playlist::PlaylistDetailFocus;
 use crate::mpris::MprisCmd;
 use crate::player::{PlayerCmd, PlayerEvent};
 
@@ -123,10 +125,19 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Search overlay captures all keys while active, regardless of current tab.
-    if app.search.active {
+    // Search overlay captures all keys while active or modal is open, regardless of current tab.
+    if app.search.active || app.search.modal_open {
         handle_search_input(app, key);
         return;
+    }
+
+    // Open search modal when on Search tab
+    if app.current_tab == Tab::Search {
+        if key.code == KeyCode::Char('/') {
+            app.search.modal_open = true;
+            app.search.query.clear();
+            return;
+        }
     }
 
     // Global bindings
@@ -256,6 +267,8 @@ fn execute_command(app: &mut App, cmd: &str) {
         "search" => {
             cleanup(app);
             app.set_tab(Tab::Search);
+            app.search.modal_open = true;
+            app.search.query.clear();
         }
         _ => {}
     }
@@ -921,38 +934,80 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_search_input(app: &mut App, key: KeyEvent) {
-    match key.code {
-        KeyCode::Tab => {
-            app.search.active = false;
-            app.next_tab();
-        }
-        KeyCode::BackTab => {
-            app.search.active = false;
-            app.prev_tab();
-        }
-        KeyCode::Esc => {
-            // Close overlay, stay on current view.
-            app.search.active = false;
-        }
-        KeyCode::Enter => {
-            let query = app.search.query.clone();
-            app.search.active = false;
-            if !query.is_empty() {
-                // Now we're committing to showing search results — navigate away.
-                if leaving_album(app) { kitty_delete_album_art(); }
-                app.view_stack.clear();
-                app.current_tab = Tab::Search;
-                app.search.loading = true;
-                let _ = app.api_tx.send(ApiRequest::Search { query });
+    // If modal is open, handle input for the search modal
+    if app.search.modal_open {
+        match key.code {
+            KeyCode::Esc => {
+                app.search.modal_open = false;
+                app.prev_tab();
             }
+            KeyCode::Enter => {
+                let query = app.search.query.clone();
+                app.search.modal_open = false;
+                if !query.is_empty() {
+                    app.search.loading = true;
+                    app.search.track_sel = 0;
+                    app.search.artist_sel = 0;
+                    app.search.playlist_sel = 0;
+                    app.search.tracks.clear();
+                    app.search.artists.clear();
+                    app.search.playlists.clear();
+                    app.search.reset_viewports();
+                    app.search.pane = SearchPane::Tracks;
+                    let _ = app.api_tx.send(ApiRequest::SearchTracks { query: query.clone() });
+                    let _ = app.api_tx.send(ApiRequest::SearchArtistsMain { query: query.clone() });
+                    let _ = app.api_tx.send(ApiRequest::SearchPlaylistsMain { query });
+                }
+            }
+            KeyCode::Backspace => {
+                app.search.query.pop();
+            }
+            KeyCode::Char(c) => {
+                app.search.query.push(c);
+            }
+            _ => {}
         }
-        KeyCode::Backspace => {
-            app.search.query.pop();
+    } else {
+        // Original behavior for search results navigation
+        match key.code {
+            KeyCode::Tab => {
+                app.search.active = false;
+                app.next_tab();
+            }
+            KeyCode::BackTab => {
+                app.search.active = false;
+                app.prev_tab();
+            }
+            KeyCode::Esc => {
+                // Close overlay, stay on current view.
+                app.search.active = false;
+            }
+            KeyCode::Enter => {
+                let query = app.search.query.clone();
+                app.search.active = false;
+                if !query.is_empty() {
+                    if leaving_album(app) { kitty_delete_album_art(); }
+                    app.view_stack.clear();
+                    app.current_tab = Tab::Search;
+                    app.search.loading = true;
+                    app.search.track_sel = 0;
+                    app.search.artist_sel = 0;
+                    app.search.playlist_sel = 0;
+                    app.search.reset_viewports();
+                    app.search.pane = SearchPane::Tracks;
+                    let _ = app.api_tx.send(ApiRequest::SearchTracks { query: query.clone() });
+                    let _ = app.api_tx.send(ApiRequest::SearchArtistsMain { query: query.clone() });
+                    let _ = app.api_tx.send(ApiRequest::SearchPlaylistsMain { query });
+                }
+            }
+            KeyCode::Backspace => {
+                app.search.query.pop();
+            }
+            KeyCode::Char(c) => {
+                app.search.query.push(c);
+            }
+            _ => {}
         }
-        KeyCode::Char(c) => {
-            app.search.query.push(c);
-        }
-        _ => {}
     }
 }
 
@@ -1052,7 +1107,7 @@ fn handle_artist_selection_input(app: &mut App, key: KeyEvent) {
 }
 
 fn check_load_more(app: &mut App) {
-    // Playlist detail tracks — checked before tab-level lists so the guard below
+    // Detail view tracks — checked before tab-level lists so the guard below
     // (`view_stack.is_empty()`) doesn't shadow it.
     if let Some(View::PlaylistDetail(detail)) = app.view_stack.last() {
         if detail.tracks.should_load_more() {
@@ -1060,8 +1115,23 @@ fn check_load_more(app: &mut App) {
             return;
         }
     }
+    if let Some(View::ArtistDetail(detail)) = app.view_stack.last() {
+        if detail.tracks.should_load_more() {
+            app.load_more_artist_tracks();
+            return;
+        }
+    }
 
     match app.current_tab {
+        Tab::Search if app.view_stack.is_empty() => {
+            if app.search.should_load_more_for_pane() {
+                match app.search.pane {
+                    SearchPane::Tracks => app.load_search_tracks_next(),
+                    SearchPane::Artists => app.load_search_artists_next(),
+                    SearchPane::Playlists => app.load_search_playlists_next(),
+                }
+            }
+        }
         Tab::Artists if app.view_stack.is_empty() => {
             if app.artists.should_load_more() {
                 app.load_artists();

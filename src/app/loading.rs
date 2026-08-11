@@ -55,6 +55,16 @@ impl App {
         }
     }
 
+    pub fn load_more_artist_tracks(&mut self) {
+        if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
+            if !detail.tracks.loading && !detail.tracks.exhausted {
+                let artist_id = detail.artist.id;
+                detail.tracks.loading = true;
+                let _ = self.api_tx.send(ApiRequest::LoadArtistTopTracks { artist_id });
+            }
+        }
+    }
+
     pub(crate) fn fetch_now_playing_metadata(&mut self) {
         self.fetch_now_playing_art();
         self.fetch_lyrics();

@@ -9,6 +9,7 @@ mod library;
 mod responses;
 
 pub use state::*;
+pub use crate::playlist::{PlaylistDetail, PlaylistDetailFocus};
 
 use tokio::sync::{mpsc, watch};
 use crate::api::ApiRequest;
@@ -16,6 +17,7 @@ use crate::api::models::{Album, Artist, Playlist, Track};
 use crate::lastfm::LastfmCmd;
 use crate::mpris::MprisState;
 use crate::player::PlayerCmd;
+use crate::search::SearchState;
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -51,8 +53,8 @@ pub struct App {
     pub help_scroll: u16,
 
     pub tick: u64,
-    /// (message, level, tick when set) — cleared automatically after ~5 s
-    pub status: Option<(String, StatusLevel, u64)>,
+    /// (message, level, Instant when set) — cleared automatically after ~5 s
+    pub status: Option<(String, StatusLevel, std::time::Instant)>,
 
     pub api_tx:    mpsc::UnboundedSender<ApiRequest>,
     pub player_tx: mpsc::UnboundedSender<PlayerCmd>,
@@ -130,22 +132,40 @@ impl App {
 
     pub fn tick(&mut self) {
         self.tick = self.tick.wrapping_add(1);
-        // ~5 s at 16 ms/tick = 312 ticks
-        if let Some((_, _, set_at)) = self.status {
-            if self.tick.wrapping_sub(set_at) > 312 {
+        if let Some((msg, _, set_at)) = &self.status {
+            if set_at.elapsed() > std::time::Duration::from_secs(5) {
+                tracing::debug!("Clearing status after {:.1}s: {}", set_at.elapsed().as_secs_f64(), msg);
                 self.status = None;
             }
         }
     }
 
     pub(crate) fn set_status(&mut self, msg: String, level: StatusLevel) {
-        self.status = Some((msg, level, self.tick));
+        self.status = Some((msg, level, std::time::Instant::now()));
     }
 
     /// Copy a share URL to the system clipboard and confirm via the status toast.
     pub(crate) fn copy_url(&mut self, url: String) {
         copy_to_clipboard(&url);
         self.set_status(format!("Copied link: {url}"), StatusLevel::Info);
+    }
+
+    pub(crate) fn load_search_tracks_next(&mut self) {
+        if let Some(next_url) = self.search.tracks_next_url.take() {
+            let _ = self.api_tx.send(crate::api::ApiRequest::SearchTracksNext { next_url });
+        }
+    }
+
+    pub(crate) fn load_search_artists_next(&mut self) {
+        if let Some(next_url) = self.search.artists_next_url.take() {
+            let _ = self.api_tx.send(crate::api::ApiRequest::SearchArtistsNext { next_url });
+        }
+    }
+
+    pub(crate) fn load_search_playlists_next(&mut self) {
+        if let Some(next_url) = self.search.playlists_next_url.take() {
+            let _ = self.api_tx.send(crate::api::ApiRequest::SearchPlaylistsNext { next_url });
+        }
     }
 }
 

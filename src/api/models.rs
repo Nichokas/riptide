@@ -218,13 +218,6 @@ pub struct FavoritePlaylistEntry {
 
 // ── Search ────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
-pub struct SearchResponse {
-    pub artists: Option<Page<Artist>>,
-    pub tracks: Option<Page<Track>>,
-    pub playlists: Option<Page<Playlist>>,
-}
-
 // ── Artist bio ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]

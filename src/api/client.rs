@@ -207,7 +207,6 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
         if let Some(track_obj) = track_map.get(&track_id) {
             if let Some(attrs) = track_obj.get("attributes").and_then(|v| v.as_object()) {
                 if let Some(title) = attrs.get("title").and_then(|v| v.as_str()) {
-                    tracing::debug!("  Track ID {} -> Title: '{}'", track_id, title);
                     if let Ok(id) = track_id.parse::<u64>() {
                         let duration = parse_iso_duration(
                             attrs.get("duration")
@@ -250,7 +249,6 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
                 }
             }
         } else {
-            tracing::debug!("  Track ID {} NOT FOUND in included array!", track_id);
         }
     }
 
@@ -314,7 +312,6 @@ fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -
         if let Some(track_obj) = track_map.get(&track_id) {
             if let Some(attrs) = track_obj.get("attributes").and_then(|v| v.as_object()) {
                 if let Some(title) = attrs.get("title").and_then(|v| v.as_str()) {
-                    tracing::debug!("  Track ID {} -> Title: '{}'", track_id, title);
                     if let Ok(id) = track_id.parse::<u64>() {
                         let duration = parse_iso_duration(
                             attrs.get("duration")
@@ -357,7 +354,6 @@ fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -
                 }
             }
         } else {
-            tracing::debug!("  Track ID {} NOT FOUND in included array!", track_id);
         }
     }
 
@@ -571,6 +567,300 @@ fn parse_v2_track_details(api_resp: &serde_json::Value) -> Result<(Track, Option
     };
 
     Ok((track, cover_url))
+}
+
+#[derive(Debug)]
+pub struct SearchTrackPage {
+    pub tracks: Vec<Track>,
+    #[allow(dead_code)]
+    pub total: u32,
+    pub next_url: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct SearchArtistPage {
+    pub artists: Vec<Artist>,
+    #[allow(dead_code)]
+    pub total: u32,
+    pub next_url: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct SearchPlaylistPage {
+    pub playlists: Vec<Playlist>,
+    #[allow(dead_code)]
+    pub total: u32,
+    pub next_url: Option<String>,
+}
+
+fn parse_search_track_page(api_resp: &serde_json::Value) -> Result<SearchTrackPage> {
+    // Handle both initial search response (nested) and pagination response (flat)
+    let (track_refs, next_url, included_opt) = if api_resp["data"].is_array() {
+        // Pagination response: data is array at top level, included may be missing
+        let refs = api_resp["data"].as_array().context("missing tracks data")?;
+        let next = api_resp["links"]["next"].as_str().map(String::from);
+        let inc = api_resp["included"].as_array();
+        tracing::debug!("pagination: tracks={}, has_included={}, has_next={}", refs.len(), inc.is_some(), next.is_some());
+        (refs, next, inc)
+    } else {
+        // Initial search response: data is object with relationships
+        let data = &api_resp["data"];
+        let rels = &data["relationships"]["tracks"];
+        let refs = rels["data"].as_array().context("missing tracks data")?;
+        let next = rels["links"]["next"].as_str().map(String::from);
+        let inc = api_resp["included"].as_array().context("missing included")?;
+        (refs, next, Some(inc))
+    };
+
+    let mut tracks = Vec::new();
+    let mut artist_map = std::collections::HashMap::new();
+    let mut track_map = std::collections::HashMap::new();
+
+    // First pass: build artist map (only if included is present)
+    if let Some(included) = included_opt {
+        for item in included {
+            if item["type"] == "artists" {
+                if let Ok(id) = item["id"].as_str().context("missing artist id")?.parse::<u64>() {
+                    let name = item["attributes"]["name"].as_str().unwrap_or("").to_string();
+                    let picture = item["attributes"]["picture"].as_str().map(String::from);
+
+                    let artist = Artist {
+                        id,
+                        name,
+                        picture,
+                        added_at: None,
+                    };
+                    artist_map.insert(id, artist);
+                }
+            }
+        }
+
+        // Second pass: build tracks
+        for item in included {
+        if item["type"] == "tracks" {
+            let id = item["id"].as_str().context("missing track id")?.parse::<u64>()?;
+            let title = item["attributes"]["title"].as_str().unwrap_or("").to_string();
+            let duration_str = item["attributes"]["duration"].as_str().unwrap_or("PT0S");
+            let duration = parse_iso_duration(duration_str);
+
+            // Extract artists from relationships
+            let mut artist_refs = Vec::new();
+            if let Some(artist_rels) = item["relationships"]["artists"]["data"].as_array() {
+                for artist_ref in artist_rels {
+                    if let Some(artist_id_str) = artist_ref["id"].as_str() {
+                        if let Ok(artist_id) = artist_id_str.parse::<u64>() {
+                            if let Some(artist) = artist_map.get(&artist_id) {
+                                artist_refs.push(ArtistRef {
+                                    name: artist.name.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            let artist_name = if !artist_refs.is_empty() {
+                Some(artist_refs[0].clone())
+            } else {
+                None
+            };
+
+            let album_id = item["relationships"]["albums"]["data"][0]["id"]
+                .as_str()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            let album_title = item["attributes"]["album"]["title"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+
+            let track = Track {
+                id,
+                title,
+                duration,
+                artist: artist_name,
+                artists: artist_refs,
+                album: Album {
+                    id: album_id,
+                    title: album_title,
+                    number_of_tracks: None,
+                    release_date: None,
+                    cover: None,
+                    artist: None,
+                    audio_quality: None,
+                    media_metadata: None,
+                    added_at: None,
+                },
+                audio_quality: item["attributes"]["audioQuality"].as_str().map(String::from),
+                media_metadata: None,
+                added_at: None,
+            };
+            track_map.insert(id, track);
+        }
+        }
+    }
+
+    for track_ref in track_refs {
+        if let Some(id_str) = track_ref["id"].as_str() {
+            if let Ok(id) = id_str.parse::<u64>() {
+                if let Some(track) = track_map.remove(&id) {
+                    tracks.push(track);
+                }
+            }
+        }
+    }
+
+    Ok(SearchTrackPage {
+        tracks,
+        total: track_refs.len() as u32,
+        next_url,
+    })
+}
+
+fn parse_search_artist_page(api_resp: &serde_json::Value) -> Result<SearchArtistPage> {
+    // Handle both initial search response (nested) and pagination response (flat)
+    let (artist_refs, next_url, included_opt) = if api_resp["data"].is_array() {
+        // Pagination response: data is array at top level, included may be missing
+        let refs = api_resp["data"].as_array().context("missing artists data")?;
+        let next = api_resp["links"]["next"].as_str().map(String::from);
+        let inc = api_resp["included"].as_array();
+        (refs, next, inc)
+    } else {
+        // Initial search response: data is object with relationships
+        let data = &api_resp["data"];
+        let rels = &data["relationships"]["artists"];
+        let refs = rels["data"].as_array().context("missing artists data")?;
+        let next = rels["links"]["next"].as_str().map(String::from);
+        let inc = api_resp["included"].as_array().context("missing included")?;
+        tracing::debug!("search artists: total_refs={}, total_included={}", refs.len(), inc.len());
+        (refs, next, Some(inc))
+    };
+
+    let mut artists = Vec::new();
+    let mut artist_map = std::collections::HashMap::new();
+
+    if let Some(included) = included_opt {
+        // Build artwork map: artwork ID -> image ID (path for constructing URLs)
+        let mut artwork_map = std::collections::HashMap::new();
+        for item in included {
+            if item["type"] == "artworks" {
+                if let Some(artwork_id) = item["id"].as_str() {
+                    // Extract image ID from 320x320 URL: https://resources.tidal.com/images/{image_id}/320x320.jpg
+                    if let Some(files) = item["attributes"]["files"].as_array() {
+                        for file in files {
+                            if let Some(href) = file["href"].as_str() {
+                                if href.contains("320x320") {
+                                    // Extract the image ID: everything between /images/ and /320x320
+                                    if let Some(start) = href.find("/images/") {
+                                        if let Some(end) = href.find("/320x320") {
+                                            let image_id = &href[start + 8..end];
+                                            artwork_map.insert(artwork_id.to_string(), image_id.to_string());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for item in included {
+        if item["type"] == "artists" {
+            let id = item["id"].as_str().context("missing artist id")?.parse::<u64>()?;
+            let name = item["attributes"]["name"].as_str().unwrap_or("").to_string();
+            // Extract image ID from profileArt relationship via artwork map
+            let picture = item["relationships"]["profileArt"]["data"][0]["id"]
+                .as_str()
+                .and_then(|artwork_id| artwork_map.get(artwork_id).cloned());
+            tracing::debug!("search artist: name={}, picture={}", name, picture.is_some());
+
+            let artist = Artist {
+                id,
+                name,
+                picture,
+                added_at: None,
+            };
+            artist_map.insert(id, artist);
+        }
+        }
+    }
+
+    for artist_ref in artist_refs {
+        if let Some(id_str) = artist_ref["id"].as_str() {
+            if let Ok(id) = id_str.parse::<u64>() {
+                if let Some(artist) = artist_map.remove(&id) {
+                    artists.push(artist);
+                }
+            }
+        }
+    }
+
+    Ok(SearchArtistPage {
+        artists,
+        total: artist_refs.len() as u32,
+        next_url,
+    })
+}
+
+fn parse_search_playlist_page(api_resp: &serde_json::Value) -> Result<SearchPlaylistPage> {
+    // Handle both initial search response (nested) and pagination response (flat)
+    let (playlist_refs, next_url, included_opt) = if api_resp["data"].is_array() {
+        // Pagination response: data is array at top level, included may be missing
+        let refs = api_resp["data"].as_array().context("missing playlists data")?;
+        let next = api_resp["links"]["next"].as_str().map(String::from);
+        let inc = api_resp["included"].as_array();
+        (refs, next, inc)
+    } else {
+        // Initial search response: data is object with relationships
+        let data = &api_resp["data"];
+        let rels = &data["relationships"]["playlists"];
+        let refs = rels["data"].as_array().context("missing playlists data")?;
+        let next = rels["links"]["next"].as_str().map(String::from);
+        let inc = api_resp["included"].as_array().context("missing included")?;
+        (refs, next, Some(inc))
+    };
+
+    let mut playlists = Vec::new();
+    let mut playlist_map = std::collections::HashMap::new();
+
+    if let Some(included) = included_opt {
+        for item in included {
+        if item["type"] == "playlists" {
+            let uuid = item["id"].as_str().context("missing playlist id")?.to_string();
+            let title = item["attributes"]["name"].as_str().unwrap_or("").to_string();
+            let number_of_tracks = item["attributes"]["numberOfItems"].as_u64().map(|n| n as u32);
+            let description = item["attributes"]["description"].as_str().map(String::from);
+
+            tracing::debug!("found playlist: {} ({} items)", title, number_of_tracks.unwrap_or(0));
+
+            let playlist = Playlist {
+                uuid: uuid.clone(),
+                title,
+                number_of_tracks,
+                description,
+                cover: None,
+                added_at: None,
+            };
+            playlist_map.insert(uuid, playlist);
+        }
+        }
+    }
+
+    for playlist_ref in playlist_refs {
+        if let Some(uuid) = playlist_ref["id"].as_str() {
+            if let Some(playlist) = playlist_map.remove(uuid) {
+                playlists.push(playlist);
+            }
+        }
+    }
+
+    Ok(SearchPlaylistPage {
+        playlists,
+        total: playlist_refs.len() as u32,
+        next_url,
+    })
 }
 
 pub struct ApiClient {
@@ -1013,29 +1303,146 @@ impl ApiClient {
 
     // ── Search ────────────────────────────────────────────────────────────────
 
-    pub async fn search(&self, query: &str, limit: u32) -> Result<SearchResponse> {
-        self.get(
-            "/search",
-            &[
-                ("query", query.to_string()),
-                ("types", "ARTISTS,ALBUMS,TRACKS,PLAYLISTS".to_string()),
-                ("limit", limit.to_string()),
-            ],
-        )
-        .await
+    pub async fn search_tracks(&self, query: &str) -> Result<SearchTrackPage> {
+        tracing::debug!("=== executing v2 search for tracks: '{}' ===", query);
+        let encoded_query = query
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+                _ => format!("%{:02X}", b),
+            })
+            .collect::<String>();
+        let url = format!("{OPENAPI_BASE}/searchResults/{}", encoded_query);
+
+        let mut all_params: Vec<(&str, String)> = vec![
+            ("countryCode", self.config.country_code.clone()),
+        ];
+        if let Some(sid) = &self.config.session_id {
+            all_params.push(("sessionId", sid.clone()));
+        }
+        all_params.push(("include", "tracks.artists".to_string()));
+
+        let token = self.token.read().await.clone();
+        let body = self.http.get(&url)
+            .bearer_auth(&token)
+            .query(&all_params)
+            .send()
+            .await
+            .context("HTTP request failed")?
+            .json::<serde_json::Value>()
+            .await
+            .context("failed to parse search tracks response")?;
+
+        parse_search_track_page(&body)
     }
 
-    pub async fn search_artists(&self, query: &str, limit: u32) -> Result<Vec<Artist>> {
-        let resp: SearchResponse = self.get(
-            "/search",
-            &[
-                ("query", query.to_string()),
-                ("types", "ARTISTS".to_string()),
-                ("limit", limit.to_string()),
-            ],
-        )
-        .await?;
-        Ok(resp.artists.map(|p| p.items).unwrap_or_default())
+    pub async fn search_artists(&self, query: &str) -> Result<SearchArtistPage> {
+        tracing::debug!("=== executing v2 search for artists: '{}' ===", query);
+        let encoded_query = query
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+                _ => format!("%{:02X}", b),
+            })
+            .collect::<String>();
+        let url = format!("{OPENAPI_BASE}/searchResults/{}", encoded_query);
+
+        let mut all_params: Vec<(&str, String)> = vec![
+            ("countryCode", self.config.country_code.clone()),
+        ];
+        if let Some(sid) = &self.config.session_id {
+            all_params.push(("sessionId", sid.clone()));
+        }
+        all_params.push(("include", "artists.profileArt".to_string()));
+
+        let token = self.token.read().await.clone();
+        let body = self.http.get(&url)
+            .bearer_auth(&token)
+            .query(&all_params)
+            .send()
+            .await
+            .context("HTTP request failed")?
+            .json::<serde_json::Value>()
+            .await
+            .context("failed to parse search artists response")?;
+
+        parse_search_artist_page(&body)
+    }
+
+    pub async fn search_playlists(&self, query: &str) -> Result<SearchPlaylistPage> {
+        tracing::debug!("=== executing v2 search for playlists: '{}' ===", query);
+        let encoded_query = query
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+                _ => format!("%{:02X}", b),
+            })
+            .collect::<String>();
+        let url = format!("{OPENAPI_BASE}/searchResults/{}", encoded_query);
+
+        let mut all_params: Vec<(&str, String)> = vec![
+            ("countryCode", self.config.country_code.clone()),
+        ];
+        if let Some(sid) = &self.config.session_id {
+            all_params.push(("sessionId", sid.clone()));
+        }
+        all_params.push(("include", "playlists".to_string()));
+
+        let token = self.token.read().await.clone();
+        let body = self.http.get(&url)
+            .bearer_auth(&token)
+            .query(&all_params)
+            .send()
+            .await
+            .context("HTTP request failed")?
+            .json::<serde_json::Value>()
+            .await
+            .context("failed to parse search playlists response")?;
+
+        parse_search_playlist_page(&body)
+    }
+
+    pub async fn search_tracks_next(&self, next_url: &str) -> Result<SearchTrackPage> {
+        let sep = if next_url.contains('?') { "&" } else { "?" };
+        let url = format!("{OPENAPI_BASE}{next_url}{sep}include=tracks.artists", sep = sep);
+        tracing::debug!("pagination request (tracks): {}", url);
+        let body = self.http.get(&url)
+            .bearer_auth(&self.token.read().await.clone())
+            .send()
+            .await
+            .context("HTTP request failed")?
+            .json()
+            .await
+            .context("failed to parse search tracks response")?;
+        parse_search_track_page(&body)
+    }
+
+    pub async fn search_artists_next(&self, next_url: &str) -> Result<SearchArtistPage> {
+        let sep = if next_url.contains('?') { "&" } else { "?" };
+        let url = format!("{OPENAPI_BASE}{next_url}{sep}include=artists.profileArt", sep = sep);
+        let body = self.http.get(&url)
+            .bearer_auth(&self.token.read().await.clone())
+            .send()
+            .await
+            .context("HTTP request failed")?
+            .json()
+            .await
+            .context("failed to parse search artists response")?;
+        parse_search_artist_page(&body)
+    }
+
+    pub async fn search_playlists_next(&self, next_url: &str) -> Result<SearchPlaylistPage> {
+        let sep = if next_url.contains('?') { "&" } else { "?" };
+        let url = format!("{OPENAPI_BASE}{next_url}{sep}include=playlists", sep = sep);
+        let body = self.http.get(&url)
+            .bearer_auth(&self.token.read().await.clone())
+            .send()
+            .await
+            .context("HTTP request failed")?
+            .json()
+            .await
+            .context("failed to parse search playlists response")?;
+        parse_search_playlist_page(&body)
     }
 
     // ── Albums ────────────────────────────────────────────────────────────────
@@ -1154,24 +1561,12 @@ impl ApiClient {
         // Strategy: try LOSSLESS first (guaranteed FLAC), then HI_RES_LOSSLESS
         // (only if its DASH codec is actually FLAC), then HIGH as last resort.
         const QUALITIES: &[&str] = &["LOSSLESS", "HI_RES_LOSSLESS", "HIGH"];
-        const MAX_RETRIES: usize = 3;
         let path = format!("/tracks/{track_id}/playbackinfopostpaywall");
         let debug = std::env::var("RIPTIDE_QUALITY_DEBUG").is_ok();
         let token = self.token.read().await.clone();
         let base_url = format!("{BASE}{path}");
 
-        for retry_attempt in 0..=MAX_RETRIES {
-            if retry_attempt > 0 {
-                let delay_ms = 300 * retry_attempt as u64;
-                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-                if debug {
-                    eprintln!("[quality] track {track_id}: retry attempt {retry_attempt}");
-                }
-            }
-
-            let mut all_failed_with_asset_not_ready = true;
-
-            for &quality in QUALITIES {
+        for &quality in QUALITIES {
             let mut all_params: Vec<(&str, String)> = vec![
                 ("countryCode", self.config.country_code.clone()),
                 ("audioquality", quality.to_string()),
@@ -1207,23 +1602,8 @@ impl ApiClient {
                     eprintln!("[quality] track {track_id}: {quality} request failed — {error_msg}");
                 }
 
-                let entitlement_denied = matches!(
-                    status,
-                    reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
-                );
-
-                if entitlement_denied {
+                if matches!(status, reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN) {
                     tracing::debug!("Track {track_id} ({quality}): {error_msg}");
-                    // Check if this is an "asset not ready" error (subStatus 4005)
-                    let is_asset_not_ready = serde_json::from_str::<serde_json::Value>(&body)
-                        .ok()
-                        .and_then(|v| v.get("subStatus").and_then(|s| s.as_u64()))
-                        .map(|code| code == 4005)
-                        .unwrap_or(false);
-
-                    if !is_asset_not_ready {
-                        all_failed_with_asset_not_ready = false;
-                    }
                     continue;
                 }
                 return Err(anyhow::anyhow!("Track {track_id} ({quality}): {error_msg}"));
@@ -1341,18 +1721,6 @@ impl ApiClient {
                     continue;
                 }
             }
-            }
-
-            // If not all failures were asset-not-ready, don't retry (permanent error)
-            if !all_failed_with_asset_not_ready {
-                break;
-            }
-
-            // If this was the last retry, break so we can return the error
-            if retry_attempt == MAX_RETRIES {
-                break;
-            }
-            // Otherwise continue to next retry
         }
 
         Err(anyhow::anyhow!("no stream URL available for track {track_id}"))

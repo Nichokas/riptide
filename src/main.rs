@@ -17,6 +17,8 @@ mod lastfm;
 mod manifest;
 mod mpris;
 mod player;
+mod playlist;
+mod search;
 mod ui;
 
 use api::ApiWorker;
