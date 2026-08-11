@@ -77,9 +77,9 @@ jobs:
 
       - name: Create archive
         run: |
-          cd target/x86_64-apple-darwin/release
-          tar -czf ../../../riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz riptide
-          cd ../../../
+          cd target/release
+          tar -czf ../../riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz riptide
+          cd ../../
           sha256sum riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz > riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz.sha256
 
       - name: Upload artifacts
