@@ -12,7 +12,7 @@ impl App {
         let id = track.id;
         self.now_playing.queue = vec![track.clone()];
         self.now_playing.queue_index = 0;
-        self.now_playing.track = Some(track);
+        // Don't set now_playing.track yet - wait for successful StreamUrl response
         self.now_playing.active = false;
         self.now_playing.position = 0.0;
         self.now_playing.shuffle = false;
@@ -20,8 +20,6 @@ impl App {
         self.now_playing.source_playlist_uuid = None;
         self.now_playing.source_playlist_next_offset = 0;
         let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl { track_id: id });
-        self.fetch_now_playing_metadata();
-        self.push_mpris_state();
     }
 
     pub fn play_tracks(&mut self, tracks: Vec<Track>, start_index: usize) {
@@ -34,7 +32,7 @@ impl App {
             queue.shuffle(&mut rand::thread_rng());
             queue.insert(0, current);
             let track_id = queue.first().map(|t| t.id);
-            self.now_playing.track = queue.first().cloned();
+            // Don't set track yet - wait for successful StreamUrl response
             self.now_playing.queue = queue;
             self.now_playing.queue_index = 0;
             self.now_playing.active = false;
@@ -47,7 +45,7 @@ impl App {
             self.now_playing.source_playlist_uuid = None;
             self.now_playing.source_playlist_next_offset = 0;
             let track_id = tracks.get(start_index).map(|t| t.id);
-            self.now_playing.track = tracks.get(start_index).cloned();
+            // Don't set track yet - wait for successful StreamUrl response
             self.now_playing.queue = tracks;
             self.now_playing.queue_index = start_index;
             self.now_playing.active = false;
@@ -56,8 +54,6 @@ impl App {
                 let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl { track_id: id });
             }
         }
-        self.fetch_now_playing_metadata();
-        self.push_mpris_state();
     }
 
     /// Like `play_tracks`, but records the source playlist UUID so that pages that
@@ -83,14 +79,12 @@ impl App {
         let next_idx = self.now_playing.queue_index + 1;
         if next_idx < self.now_playing.queue.len() {
             self.now_playing.queue_index = next_idx;
-            self.now_playing.track = self.now_playing.queue.get(next_idx).cloned();
+            // Don't set track yet - wait for successful StreamUrl response
             self.now_playing.active = false;
             self.now_playing.position = 0.0;
             if let Some(track) = self.now_playing.queue.get(next_idx) {
                 let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl { track_id: track.id });
             }
-            self.fetch_now_playing_metadata();
-            self.push_mpris_state();
         }
     }
 
@@ -98,14 +92,12 @@ impl App {
         if self.now_playing.queue_index > 0 {
             let prev_idx = self.now_playing.queue_index - 1;
             self.now_playing.queue_index = prev_idx;
-            self.now_playing.track = self.now_playing.queue.get(prev_idx).cloned();
+            // Don't set track yet - wait for successful StreamUrl response
             self.now_playing.active = false;
             self.now_playing.position = 0.0;
             if let Some(track) = self.now_playing.queue.get(prev_idx) {
                 let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl { track_id: track.id });
             }
-            self.fetch_now_playing_metadata();
-            self.push_mpris_state();
         }
     }
 

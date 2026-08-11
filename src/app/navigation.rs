@@ -3,7 +3,7 @@
 
 use crate::api::ApiRequest;
 use crate::api::models::{Album, Artist, Playlist};
-use super::{App, ArtistDetail, ArtistDetailFocus, AlbumDetail, PlaylistDetail, StatefulList, Tab, View};
+use super::{App, ArtistDetail, ArtistDetailFocus, AlbumDetail, PlaylistDetail, PlaylistDetailFocus, StatefulList, Tab, View};
 
 impl App {
     // ── Tab switching ─────────────────────────────────────────────────────────
@@ -137,13 +137,25 @@ impl App {
         let uuid = playlist.uuid.clone();
         let mut tracks: StatefulList<crate::api::models::Track> = StatefulList::default();
         tracks.loading = true;
-        let detail = PlaylistDetail { playlist, tracks };
+        let has_cover = playlist.cover.is_some();
+        let detail = PlaylistDetail {
+            playlist: playlist.clone(),
+            tracks,
+            focus: PlaylistDetailFocus::Tracks,
+            art_bytes: None,
+            art_loading: has_cover,
+            description_scroll: 0,
+        };
         self.view_stack.push(View::PlaylistDetail(detail));
         // Use v2 API for mixes from Home tab, v1 for regular playlists
         if self.current_tab == Tab::Home {
             let _ = self.api_tx.send(ApiRequest::LoadMixTracks { uuid, offset: 0 });
         } else {
             let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks { uuid, next_url: None });
+        }
+        if let Some(cover_url) = playlist.cover {
+            let uuid_for_art = playlist.uuid.clone();
+            let _ = self.api_tx.send(ApiRequest::FetchPlaylistArt { uuid: uuid_for_art, cover_url });
         }
     }
 

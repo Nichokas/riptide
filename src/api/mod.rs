@@ -28,6 +28,7 @@ pub enum ApiRequest {
     LoadAlbumTracks { album_id: u64 },
     FetchAlbumArt { album_id: u64, cover_id: String },
     FetchArtistArt { artist_id: u64, picture_id: String },
+    FetchPlaylistArt { uuid: String, cover_url: String },
     LoadPlaylistTracks { uuid: String, next_url: Option<String> },
     LoadMixTracks { uuid: String, offset: u32 },
     Search { query: String },
@@ -47,6 +48,8 @@ pub enum ApiRequest {
     LoadDailyMixes,
     LoadDiscoveryMixes,
     LoadNewReleases,
+    GetTrackDetails { track_id: u64 },
+    FetchTrackArt { track_id: u64, cover_url: String },
 }
 
 #[derive(Debug)]
@@ -62,8 +65,9 @@ pub enum ApiResponse {
     AlbumTracks { album_id: u64, tracks: Vec<Track> },
     AlbumArt { album_id: u64, image_data: Vec<u8> },
     ArtistArt { artist_id: u64, image_data: Vec<u8> },
+    PlaylistArt { uuid: String, image_data: Vec<u8> },
     ArtistBio { artist_id: u64, text: String },
-    PlaylistTracks { uuid: String, tracks: Vec<Track>, total: u32, next_cursor: Option<String> },
+    PlaylistTracks { uuid: String, tracks: Vec<Track>, total: u32, next_cursor: Option<String>, description: Option<String>, cover: Option<String> },
     SearchResults(Box<SearchResponse>),
     StreamUrl { track_id: u64, url: String },
     Lyrics {
@@ -87,6 +91,8 @@ pub enum ApiResponse {
     DailyMixes(Vec<Playlist>),
     DiscoveryMixes(Vec<Playlist>),
     NewReleases(Vec<Playlist>),
+    TrackDetails { track_id: u64, track: Track, cover_url: Option<String> },
+    TrackArt { track_id: u64, image_data: Vec<u8> },
     Error(String),
 }
 
@@ -262,23 +268,40 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             }
         }
 
+        ApiRequest::FetchPlaylistArt { uuid, cover_url } => {
+            match client.fetch_bytes(&cover_url).await {
+                Ok(data) => ApiResponse::PlaylistArt { uuid, image_data: data },
+                Err(e) => ApiResponse::Error(format!("playlist art: {e}")),
+            }
+        }
+
         ApiRequest::LoadPlaylistTracks { uuid, next_url } => {
-            let result = if let Some(next) = &next_url {
+            if let Some(next) = &next_url {
                 // Subsequent pages use the relationship endpoint
-                client.get_playlist_relationship_items(next, 0).await
+                match client.get_playlist_relationship_items(next, 0).await {
+                    Ok((tracks, total, next_url)) => ApiResponse::PlaylistTracks {
+                        uuid,
+                        tracks,
+                        total,
+                        next_cursor: next_url,
+                        description: None,
+                        cover: None,
+                    },
+                    Err(e) => ApiResponse::Error(e.to_string()),
+                }
             } else {
                 // First page uses the playlist endpoint
-                client.get_playlist_tracks(&uuid, None).await
-            };
-
-            match result {
-                Ok((tracks, total, next_url)) => ApiResponse::PlaylistTracks {
-                    uuid,
-                    tracks,
-                    total,
-                    next_cursor: next_url,
-                },
-                Err(e) => ApiResponse::Error(e.to_string()),
+                match client.get_playlist_tracks(&uuid, None).await {
+                    Ok((tracks, total, next_url, description, cover)) => ApiResponse::PlaylistTracks {
+                        uuid,
+                        tracks,
+                        total,
+                        next_cursor: next_url,
+                        description,
+                        cover,
+                    },
+                    Err(e) => ApiResponse::Error(e.to_string()),
+                }
             }
         }
 
@@ -289,6 +312,8 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
                     tracks,
                     total,
                     next_cursor: None,
+                    description: None,
+                    cover: None,
                 },
                 Err(e) => ApiResponse::Error(e.to_string()),
             }
@@ -375,6 +400,20 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             Ok(playlists) => ApiResponse::NewReleases(playlists),
             Err(e) => ApiResponse::Error(format!("new releases: {e}")),
         },
+
+        ApiRequest::GetTrackDetails { track_id } => {
+            match client.get_track_details(track_id).await {
+                Ok((track, cover_url)) => ApiResponse::TrackDetails { track_id, track, cover_url },
+                Err(e) => ApiResponse::Error(format!("track details: {e}")),
+            }
+        }
+
+        ApiRequest::FetchTrackArt { track_id, cover_url } => {
+            match client.fetch_bytes(&cover_url).await {
+                Ok(data) => ApiResponse::TrackArt { track_id, image_data: data },
+                Err(e) => ApiResponse::Error(format!("track art: {e}")),
+            }
+        }
 
         ApiRequest::FetchLyrics { track_id } => {
             // A 404 (no lyrics) or any other error → return empty; never emit Error.

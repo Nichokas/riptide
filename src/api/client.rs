@@ -126,21 +126,47 @@ fn build_artist_map(api_resp: &serde_json::Value) -> HashMap<String, serde_json:
     artist_map
 }
 
-fn build_album_map(api_resp: &serde_json::Value) -> HashMap<String, serde_json::Value> {
-    let mut album_map = HashMap::new();
-    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
-        for item in included {
-            if item.get("type").and_then(|v| v.as_str()) == Some("albums") {
-                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-                    album_map.insert(id.to_string(), item.clone());
-                }
-            }
-        }
-    }
-    album_map
-}
+fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>, u32, Option<String>, Option<String>, Option<String>)> {
+    // Extract description and cover from playlist attributes
+    let description = api_resp.get("data")
+        .and_then(|v| v.get("attributes"))
+        .and_then(|v| v.get("description"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
-fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>, u32, Option<String>)> {
+    // Extract cover art URL from the included array
+    let cover = {
+        let artwork_id = api_resp.get("data")
+            .and_then(|v| v.get("relationships"))
+            .and_then(|v| v.get("coverArt"))
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|v| v.get("id"))
+            .and_then(|v| v.as_str());
+
+        if let Some(id) = artwork_id {
+            // Find the artwork object in the included array
+            api_resp.get("included")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.iter().find(|item| {
+                    item.get("id").and_then(|v| v.as_str()) == Some(id)
+                        && item.get("type").and_then(|v| v.as_str()) == Some("artworks")
+                }))
+                .and_then(|artwork| artwork.get("attributes"))
+                .and_then(|attrs| attrs.get("files"))
+                .and_then(|files| files.as_array())
+                .and_then(|arr| arr.iter().find(|f| {
+                    f.get("meta").and_then(|m| m.get("width")).and_then(|w| w.as_u64()) == Some(320)
+                }))
+                .and_then(|f| f.get("href"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        } else {
+            None
+        }
+    };
+
     // Get track IDs from the playlist's items relationship
     let mut track_ids = Vec::new();
     if let Some(items_data) = api_resp.get("data")
@@ -150,8 +176,9 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
         .and_then(|v| v.as_array())
     {
         tracing::debug!("Found items in data.relationships.items.data, count: {}", items_data.len());
-        for item_ref in items_data {
+        for (idx, item_ref) in items_data.iter().enumerate() {
             if let Some(track_id) = item_ref.get("id").and_then(|v| v.as_str()) {
+                tracing::debug!("  Track {}: ID {}", idx, track_id);
                 track_ids.push(track_id.to_string());
             }
         }
@@ -159,7 +186,7 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
         tracing::debug!("No items found in data.relationships.items.data");
     }
 
-    tracing::debug!("Extracted {} track IDs", track_ids.len());
+    tracing::debug!("Extracted {} track IDs: {:?}", track_ids.len(), track_ids);
 
     // Build a map of track IDs to track details from the included array
     let mut track_map = HashMap::new();
@@ -180,6 +207,7 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
         if let Some(track_obj) = track_map.get(&track_id) {
             if let Some(attrs) = track_obj.get("attributes").and_then(|v| v.as_object()) {
                 if let Some(title) = attrs.get("title").and_then(|v| v.as_str()) {
+                    tracing::debug!("  Track ID {} -> Title: '{}'", track_id, title);
                     if let Ok(id) = track_id.parse::<u64>() {
                         let duration = parse_iso_duration(
                             attrs.get("duration")
@@ -221,6 +249,8 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
                     }
                 }
             }
+        } else {
+            tracing::debug!("  Track ID {} NOT FOUND in included array!", track_id);
         }
     }
 
@@ -243,7 +273,7 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
         None => tracing::debug!("No more pages"),
     }
 
-    Ok((tracks, total, next_url))
+    Ok((tracks, total, next_url, description, cover))
 }
 
 fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -> Result<(Vec<Track>, u32, Option<String>)> {
@@ -252,9 +282,10 @@ fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -
     // In relationship responses, items are directly in the data array
     let mut track_ids = Vec::new();
     if let Some(items_data) = api_resp.get("data").and_then(|v| v.as_array()) {
-        tracing::debug!("Found {} items in data array, count: {}", items_data.len(), items_data.len());
-        for item_ref in items_data {
+        tracing::debug!("Found items in data array, count: {}", items_data.len());
+        for (idx, item_ref) in items_data.iter().enumerate() {
             if let Some(track_id) = item_ref.get("id").and_then(|v| v.as_str()) {
+                tracing::debug!("  Track {}: ID {}", idx, track_id);
                 track_ids.push(track_id.to_string());
             }
         }
@@ -262,7 +293,7 @@ fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -
         tracing::debug!("No items found in data array");
     }
 
-    tracing::debug!("Extracted {} track IDs", track_ids.len());
+    tracing::debug!("Extracted {} track IDs: {:?}", track_ids.len(), track_ids);
 
     // Build a map of track IDs to track details from the included array
     let mut track_map = HashMap::new();
@@ -283,6 +314,7 @@ fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -
         if let Some(track_obj) = track_map.get(&track_id) {
             if let Some(attrs) = track_obj.get("attributes").and_then(|v| v.as_object()) {
                 if let Some(title) = attrs.get("title").and_then(|v| v.as_str()) {
+                    tracing::debug!("  Track ID {} -> Title: '{}'", track_id, title);
                     if let Ok(id) = track_id.parse::<u64>() {
                         let duration = parse_iso_duration(
                             attrs.get("duration")
@@ -324,6 +356,8 @@ fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -
                     }
                 }
             }
+        } else {
+            tracing::debug!("  Track ID {} NOT FOUND in included array!", track_id);
         }
     }
 
@@ -390,7 +424,8 @@ fn parse_v2_user_playlists(api_resp: &serde_json::Value) -> Result<(Vec<Playlist
                         uuid: playlist_id.clone(),
                         title: name.to_string(),
                         number_of_tracks: number_of_items,
-                        created: None,
+                        description: None,
+                        cover: None,
                         added_at: None,
                     });
 
@@ -409,6 +444,133 @@ fn parse_v2_user_playlists(api_resp: &serde_json::Value) -> Result<(Vec<Playlist
     tracing::debug!("Playlist parsing complete: {} playlists parsed (total: {})", playlists.len(), total);
 
     Ok((playlists, total))
+}
+
+fn parse_v2_track_details(api_resp: &serde_json::Value) -> Result<(Track, Option<String>)> {
+    let track_data = api_resp.get("data").context("missing data field")?;
+    let track_id = track_data.get("id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<u64>().ok())
+        .context("missing or invalid track id")?;
+
+    let attrs = track_data.get("attributes").context("missing attributes")?;
+    let title = attrs.get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown")
+        .to_string();
+
+    let duration_str = attrs.get("duration")
+        .and_then(|v| v.as_str())
+        .unwrap_or("PT0S");
+    let duration = parse_iso_duration(duration_str);
+
+    let album_id = track_data
+        .get("relationships")
+        .and_then(|v| v.get("albums"))
+        .and_then(|v| v.get("data"))
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    let mut album = Album {
+        id: album_id,
+        title: "Unknown".to_string(),
+        number_of_tracks: None,
+        release_date: None,
+        cover: None,
+        artist: None,
+        audio_quality: None,
+        media_metadata: None,
+        added_at: None,
+    };
+
+    let mut cover_url: Option<String> = None;
+    let mut artist: Option<ArtistRef> = None;
+    let mut artists: Vec<ArtistRef> = Vec::new();
+    let mut artist_map = HashMap::new();
+
+    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+        for item in included {
+            if let Some("artists") = item.get("type").and_then(|v| v.as_str()) {
+                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                    if let Some(attrs) = item.get("attributes").and_then(|v| v.as_object()) {
+                        let name = attrs.get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown")
+                            .to_string();
+                        artist_map.insert(id.to_string(), name);
+                    }
+                }
+            } else if let Some("albums") = item.get("type").and_then(|v| v.as_str()) {
+                if let Some(item_id) = item.get("id").and_then(|v| v.as_str()) {
+                    if item_id.parse::<u64>().ok() == Some(album_id) {
+                        if let Some(attrs) = item.get("attributes").and_then(|v| v.as_object()) {
+                            album.title = attrs.get("title")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown")
+                                .to_string();
+                            album.release_date = attrs.get("releaseDate")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                        }
+                    }
+                }
+            } else if let Some("artworks") = item.get("type").and_then(|v| v.as_str()) {
+                if let Some(files) = item.get("attributes")
+                    .and_then(|v| v.get("files"))
+                    .and_then(|v| v.as_array()) {
+                    if let Some(file) = files.iter().find(|f| {
+                        f.get("meta")
+                            .and_then(|m| m.get("width"))
+                            .and_then(|w| w.as_u64())
+                            .map(|w| w == 320)
+                            .unwrap_or(false)
+                    }) {
+                        cover_url = file.get("href")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(artist_ids) = track_data
+        .get("relationships")
+        .and_then(|v| v.get("artists"))
+        .and_then(|v| v.get("data"))
+        .and_then(|v| v.as_array()) {
+        for artist_ref in artist_ids {
+            if let Some(id) = artist_ref.get("id").and_then(|v| v.as_str()) {
+                if let Some(name) = artist_map.get(id) {
+                    let artist_ref = ArtistRef {
+                        name: name.clone(),
+                    };
+                    if artist.is_none() {
+                        artist = Some(artist_ref.clone());
+                    }
+                    artists.push(artist_ref);
+                }
+            }
+        }
+    }
+
+    let track = Track {
+        id: track_id,
+        title,
+        duration,
+        artist,
+        artists,
+        album,
+        audio_quality: None,
+        media_metadata: None,
+        added_at: None,
+    };
+
+    Ok((track, cover_url))
 }
 
 pub struct ApiClient {
@@ -565,7 +727,8 @@ impl ApiClient {
                 uuid: r.id,
                 title: attr.name.clone(),
                 number_of_tracks: attr.number_of_items,
-                created: None,
+                description: None,
+                cover: None,
                 added_at,
             })
         }).collect();
@@ -711,7 +874,7 @@ impl ApiClient {
         self.delete_openapi_json("/userCollectionPlaylists/me/relationships/items", &body).await
     }
 
-    pub async fn get_playlist_tracks(&self, uuid: &str, next_url: Option<&str>) -> Result<(Vec<Track>, u32, Option<String>)> {
+    pub async fn get_playlist_tracks(&self, uuid: &str, next_url: Option<&str>) -> Result<(Vec<Track>, u32, Option<String>, Option<String>, Option<String>)> {
         let token = self.token.read().await.clone();
 
         let url = if let Some(next) = next_url {
@@ -725,7 +888,7 @@ impl ApiClient {
             }
         } else {
             // Initial request - build the first page URL
-            format!("{OPENAPI_BASE}/playlists/{uuid}?countryCode=US&include=items.artists")
+            format!("{OPENAPI_BASE}/playlists/{uuid}?countryCode=US&include=items.artists&include=coverArt")
         };
 
         tracing::debug!("Fetching playlist tracks from: {}", url);
@@ -750,15 +913,15 @@ impl ApiClient {
         let api_resp: serde_json::Value = serde_json::from_str(&body)?;
 
 
-        let (tracks, total, next_url) = parse_v2_playlist_tracks(&api_resp)?;
+        let (tracks, total, next_url, description, cover) = parse_v2_playlist_tracks(&api_resp)?;
         if let Some(first_track) = tracks.first() {
-            if let Some(ref url) = next_url {
+            if let Some(ref _url) = next_url {
                 tracing::debug!("Loaded {} tracks, first: '{}', has next page", tracks.len(), first_track.title);
             } else {
                 tracing::debug!("Loaded {} tracks, first: '{}', NO more pages", tracks.len(), first_track.title);
             }
         }
-        Ok((tracks, total, next_url))
+        Ok((tracks, total, next_url, description, cover))
     }
 
     pub async fn get_playlist_relationship_items(&self, next_url: &str, total: u32) -> Result<(Vec<Track>, u32, Option<String>)> {
@@ -991,154 +1154,236 @@ impl ApiClient {
         // Strategy: try LOSSLESS first (guaranteed FLAC), then HI_RES_LOSSLESS
         // (only if its DASH codec is actually FLAC), then HIGH as last resort.
         const QUALITIES: &[&str] = &["LOSSLESS", "HI_RES_LOSSLESS", "HIGH"];
+        const MAX_RETRIES: usize = 3;
         let path = format!("/tracks/{track_id}/playbackinfopostpaywall");
         let debug = std::env::var("RIPTIDE_QUALITY_DEBUG").is_ok();
+        let token = self.token.read().await.clone();
+        let base_url = format!("{BASE}{path}");
 
-        for &quality in QUALITIES {
-            let result: Result<PlaybackInfo> = self.get(
-                &path,
-                &[
-                    ("audioquality", quality.to_string()),
-                    ("playbackmode", "STREAM".to_string()),
-                    ("assetpresentation", "FULL".to_string()),
-                ],
-            ).await;
-
-            match result {
-                Ok(info) => {
-                    let mime = info.manifest_mime_type.clone();
-                    if debug {
-                        let aq = info.audio_quality.as_deref().unwrap_or("?");
-                        eprintln!(
-                            "[quality] track {track_id}: requested {quality}, \
-                             server returned manifestMimeType={mime}, \
-                             audioQuality={aq} (200 OK)",
-                        );
-                    }
-
-                    let bytes = base64::engine::general_purpose::STANDARD
-                        .decode(&info.manifest)
-                        .context("base64 decode of manifest")?;
-
-                    match mime.as_str() {
-                        "application/vnd.tidal.bts" => {
-                            let manifest: BtsManifest = serde_json::from_slice(&bytes)
-                                .context("parse BTS manifest")?;
-
-                            if manifest.urls.is_empty() {
-                                if debug {
-                                    eprintln!("[quality] track {track_id}: BTS manifest has empty urls — skip");
-                                }
-                                continue;
-                            }
-
-                            let codec = manifest.codecs.as_deref().unwrap_or("(missing)");
-                            if debug {
-                                eprintln!(
-                                    "[quality] track {track_id}: BTS codecs={codec}, \
-                                     urls={} segment(s)",
-                                    manifest.urls.len(),
-                                );
-                            }
-
-                            // BTS with FLAC codec → real lossless.
-                            if manifest.is_flac() {
-                                if debug {
-                                    eprintln!("[quality] track {track_id}: ✓ FLAC stream accepted ({quality})");
-                                }
-                                if manifest.urls.len() == 1 {
-                                    return Ok(manifest.urls.into_iter().next().unwrap());
-                                }
-                                let m3u8 = build_flac_m3u8(track_id, &manifest.urls);
-                                return Ok(m3u8);
-                            }
-
-                            // BTS with non-FLAC codec.
-                            // For LOSSLESS requests: the API downgraded us → skip.
-                            // For HIGH requests: this is expected AAC → accept.
-                            if quality == "HIGH" {
-                                if debug {
-                                    eprintln!("[quality] track {track_id}: accepting AAC stream (HIGH)");
-                                }
-                                if let Some(url) = manifest.urls.into_iter().next() {
-                                    return Ok(url);
-                                }
-                            } else {
-                                if debug {
-                                    eprintln!(
-                                        "[quality] track {track_id}: BTS codec is '{codec}' \
-                                         (not flac) for {quality} request — falling through",
-                                    );
-                                }
-                                continue;
-                            }
-                        }
-                        "application/dash+xml" => {
-                            let xml = String::from_utf8_lossy(&bytes);
-
-                            let sets = find_adaptation_sets(&xml);
-                            let has_flac = sets.iter().any(|s| s.codecs == "flac");
-
-                            if debug {
-                                let codecs: Vec<&str> = sets.iter().map(|s| s.codecs.as_str()).collect();
-                                eprintln!(
-                                    "[quality] track {track_id}: DASH with {} AdaptationSet(s), \
-                                     codecs={:?}, has_flac={has_flac}",
-                                    sets.len(), codecs,
-                                );
-                            }
-
-                            if (quality == "LOSSLESS" || quality == "HI_RES_LOSSLESS") && !has_flac {
-                                if debug {
-                                    eprintln!(
-                                        "[quality] track {track_id}: DASH has no FLAC codec \
-                                         — falling through to next tier",
-                                    );
-                                }
-                                continue;
-                            }
-
-                            if debug {
-                                eprintln!("[quality] track {track_id}: ✓ DASH/FLAC accepted ({quality})");
-                            }
-                            let hls = dash_to_hls(track_id, &xml)
-                                .context("convert DASH manifest to HLS")?;
-                            return Ok(hls);
-                        }
-                        _ => {
-                            if debug {
-                                eprintln!(
-                                    "[quality] track {track_id}: unknown manifest MIME type '{mime}' — skip",
-                                );
-                            }
-                            continue;
-                        }
-                    }
-                }
-                Err(e) => {
-                    if debug {
-                        let status = e.downcast_ref::<reqwest::Error>()
-                            .and_then(|re| re.status());
-                        eprintln!(
-                            "[quality] track {track_id}: {quality} request failed \
-                             (status={status:?}): {e}",
-                        );
-                    }
-                    let status = e.downcast_ref::<reqwest::Error>()
-                        .and_then(|re| re.status());
-                    let entitlement_denied = matches!(
-                        status,
-                        Some(reqwest::StatusCode::UNAUTHORIZED) | Some(reqwest::StatusCode::FORBIDDEN)
-                    );
-                    if entitlement_denied {
-                        continue;
-                    }
-                    return Err(e);
+        for retry_attempt in 0..=MAX_RETRIES {
+            if retry_attempt > 0 {
+                let delay_ms = 300 * retry_attempt as u64;
+                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                if debug {
+                    eprintln!("[quality] track {track_id}: retry attempt {retry_attempt}");
                 }
             }
+
+            let mut all_failed_with_asset_not_ready = true;
+
+            for &quality in QUALITIES {
+            let mut all_params: Vec<(&str, String)> = vec![
+                ("countryCode", self.config.country_code.clone()),
+                ("audioquality", quality.to_string()),
+                ("playbackmode", "STREAM".to_string()),
+                ("assetpresentation", "FULL".to_string()),
+            ];
+            if let Some(sid) = &self.config.session_id {
+                all_params.push(("sessionId", sid.clone()));
+            }
+
+            let resp = self
+                .http
+                .get(&base_url)
+                .bearer_auth(&token.clone())
+                .query(&all_params)
+                .send()
+                .await
+                .context("HTTP request failed")?;
+
+            let status = resp.status();
+
+            if !status.is_success() {
+                let body = resp.text().await.unwrap_or_default();
+                let error_msg = if body.is_empty() {
+                    status.to_string()
+                } else {
+                    // Truncate to first 200 chars for readability
+                    let snippet: String = body.chars().take(200).collect();
+                    format!("{}: {}", status, snippet)
+                };
+
+                if debug {
+                    eprintln!("[quality] track {track_id}: {quality} request failed — {error_msg}");
+                }
+
+                let entitlement_denied = matches!(
+                    status,
+                    reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+                );
+
+                if entitlement_denied {
+                    tracing::debug!("Track {track_id} ({quality}): {error_msg}");
+                    // Check if this is an "asset not ready" error (subStatus 4005)
+                    let is_asset_not_ready = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|v| v.get("subStatus").and_then(|s| s.as_u64()))
+                        .map(|code| code == 4005)
+                        .unwrap_or(false);
+
+                    if !is_asset_not_ready {
+                        all_failed_with_asset_not_ready = false;
+                    }
+                    continue;
+                }
+                return Err(anyhow::anyhow!("Track {track_id} ({quality}): {error_msg}"));
+            }
+
+            let body = resp.text().await?;
+            let info: PlaybackInfo = serde_json::from_str(&body)
+                .context("parse playback info response")?;
+
+            let mime = info.manifest_mime_type.clone();
+            if debug {
+                let aq = info.audio_quality.as_deref().unwrap_or("?");
+                eprintln!(
+                    "[quality] track {track_id}: requested {quality}, \
+                     server returned manifestMimeType={mime}, \
+                     audioQuality={aq} (200 OK)",
+                );
+            }
+
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(&info.manifest)
+                .context("base64 decode of manifest")?;
+
+            match mime.as_str() {
+                "application/vnd.tidal.bts" => {
+                    let manifest: BtsManifest = serde_json::from_slice(&bytes)
+                        .context("parse BTS manifest")?;
+
+                    if manifest.urls.is_empty() {
+                        if debug {
+                            eprintln!("[quality] track {track_id}: BTS manifest has empty urls — skip");
+                        }
+                        continue;
+                    }
+
+                    let codec = manifest.codecs.as_deref().unwrap_or("(missing)");
+                    if debug {
+                        eprintln!(
+                            "[quality] track {track_id}: BTS codecs={codec}, \
+                             urls={} segment(s)",
+                            manifest.urls.len(),
+                        );
+                    }
+
+                    // BTS with FLAC codec → real lossless.
+                    if manifest.is_flac() {
+                        if debug {
+                            eprintln!("[quality] track {track_id}: ✓ FLAC stream accepted ({quality})");
+                        }
+                        if manifest.urls.len() == 1 {
+                            return Ok(manifest.urls.into_iter().next().unwrap());
+                        }
+                        let m3u8 = build_flac_m3u8(track_id, &manifest.urls);
+                        return Ok(m3u8);
+                    }
+
+                    // BTS with non-FLAC codec.
+                    // For LOSSLESS requests: the API downgraded us → skip.
+                    // For HIGH requests: this is expected AAC → accept.
+                    if quality == "HIGH" {
+                        if debug {
+                            eprintln!("[quality] track {track_id}: accepting AAC stream (HIGH)");
+                        }
+                        if let Some(url) = manifest.urls.into_iter().next() {
+                            return Ok(url);
+                        }
+                    } else {
+                        if debug {
+                            eprintln!(
+                                "[quality] track {track_id}: BTS codec is '{codec}' \
+                                 (not flac) for {quality} request — falling through",
+                            );
+                        }
+                        continue;
+                    }
+                }
+                "application/dash+xml" => {
+                    let xml = String::from_utf8_lossy(&bytes);
+
+                    let sets = find_adaptation_sets(&xml);
+                    let has_flac = sets.iter().any(|s| s.codecs == "flac");
+
+                    if debug {
+                        let codecs: Vec<&str> = sets.iter().map(|s| s.codecs.as_str()).collect();
+                        eprintln!(
+                            "[quality] track {track_id}: DASH with {} AdaptationSet(s), \
+                             codecs={:?}, has_flac={has_flac}",
+                            sets.len(), codecs,
+                        );
+                    }
+
+                    if (quality == "LOSSLESS" || quality == "HI_RES_LOSSLESS") && !has_flac {
+                        if debug {
+                            eprintln!(
+                                "[quality] track {track_id}: DASH has no FLAC codec \
+                                 — falling through to next tier",
+                            );
+                        }
+                        continue;
+                    }
+
+                    if debug {
+                        eprintln!("[quality] track {track_id}: ✓ DASH/FLAC accepted ({quality})");
+                    }
+                    let hls = dash_to_hls(track_id, &xml)
+                        .context("convert DASH manifest to HLS")?;
+                    return Ok(hls);
+                }
+                _ => {
+                    if debug {
+                        eprintln!(
+                            "[quality] track {track_id}: unknown manifest MIME type '{mime}' — skip",
+                        );
+                    }
+                    continue;
+                }
+            }
+            }
+
+            // If not all failures were asset-not-ready, don't retry (permanent error)
+            if !all_failed_with_asset_not_ready {
+                break;
+            }
+
+            // If this was the last retry, break so we can return the error
+            if retry_attempt == MAX_RETRIES {
+                break;
+            }
+            // Otherwise continue to next retry
         }
 
         Err(anyhow::anyhow!("no stream URL available for track {track_id}"))
+    }
+
+    pub async fn get_track_details(&self, track_id: u64) -> Result<(Track, Option<String>)> {
+        let token = self.token.read().await.clone();
+        let url = format!("{OPENAPI_BASE}/tracks/{track_id}?countryCode=US&include=albums.coverArt&include=artists");
+
+        tracing::debug!("Fetching track details for track {track_id}");
+
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            tracing::error!("API error {} fetching track {track_id}: {}", status, body);
+            anyhow::bail!("HTTP {} fetching track details", status);
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        let (track, cover_url) = parse_v2_track_details(&api_resp)?;
+        Ok((track, cover_url))
     }
 
     async fn get_mixes(&self, endpoint: &str) -> Result<Vec<Playlist>> {
@@ -1195,7 +1440,8 @@ impl ApiClient {
                                     uuid: id.to_string(),
                                     title,
                                     number_of_tracks,
-                                    created: None,
+                                                        description: None,
+                                    cover: None,
                                     added_at: None,
                                 });
                             }
@@ -1222,7 +1468,8 @@ impl ApiClient {
                             uuid: id.to_string(),
                             title,
                             number_of_tracks,
-                            created: None,
+                                        description: None,
+                            cover: None,
                             added_at: None,
                         });
                     }
@@ -1280,7 +1527,7 @@ impl ApiClient {
         let body = resp.text().await?;
         let api_resp: serde_json::Value = serde_json::from_str(&body)?;
 
-        let (tracks, total, _) = parse_v2_playlist_tracks(&api_resp)?;
+        let (tracks, total, _, _, _) = parse_v2_playlist_tracks(&api_resp)?;
         Ok((tracks, total))
     }
 

@@ -177,6 +177,15 @@ impl App {
                 }
             }
 
+            ApiResponse::PlaylistArt { uuid, image_data } => {
+                if let Some(View::PlaylistDetail(detail)) = self.view_stack.last_mut() {
+                    if detail.playlist.uuid == uuid {
+                        detail.art_bytes = Some(image_data);
+                        detail.art_loading = false;
+                    }
+                }
+            }
+
             ApiResponse::ArtistBio { artist_id, text } => {
                 if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.artist.id == artist_id {
@@ -186,10 +195,23 @@ impl App {
                 }
             }
 
-            ApiResponse::PlaylistTracks { uuid, tracks, total, next_cursor } => {
+            ApiResponse::PlaylistTracks { uuid, tracks, total, next_cursor, description, cover } => {
                 // 1. Update the detail view while it's open.
                 if let Some(View::PlaylistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.playlist.uuid == uuid {
+                        if let Some(desc) = description {
+                            detail.playlist.description = Some(desc);
+                        }
+                        if let Some(cov_url) = cover {
+                            detail.playlist.cover = Some(cov_url.clone());
+                            if !detail.art_loading {
+                                detail.art_loading = true;
+                                let _ = self.api_tx.send(ApiRequest::FetchPlaylistArt {
+                                    uuid: uuid.clone(),
+                                    cover_url: cov_url,
+                                });
+                            }
+                        }
                         detail.tracks.append(tracks.clone(), total);
                         detail.tracks.pagination_cursor = next_cursor.clone();
                         detail.tracks.exhausted = next_cursor.is_none();
@@ -269,6 +291,24 @@ impl App {
             ApiResponse::StreamUrl { track_id, url } => {
                 let idx = self.now_playing.queue_index;
                 if self.now_playing.queue.get(idx).map(|t| t.id) == Some(track_id) {
+                    // Always update the track when we get a successful stream URL for the current track
+                    let track_changed = self.now_playing.track.as_ref().map(|t| t.id) != Some(track_id);
+                    self.now_playing.track = self.now_playing.queue.get(idx).cloned();
+
+                    if track_changed {
+                        // Clear old art and lyrics so we don't show the previous track's content
+                        self.now_playing.art_bytes = None;
+                        self.now_playing.art_loading = true;
+                        self.now_playing.lyrics_synced.clear();
+                        self.now_playing.lyrics_plain.clear();
+                        self.now_playing.lyrics_loading = true;
+                    }
+
+                    // Fetch track details and lyrics now that playback is confirmed
+                    let _ = self.api_tx.send(ApiRequest::GetTrackDetails { track_id });
+                    let _ = self.api_tx.send(ApiRequest::FetchLyrics { track_id });
+                    self.push_mpris_state();
+
                     let _ = self.player_tx.send(PlayerCmd::Play(url));
                     if let Some(next) = self.now_playing.queue.get(idx + 1) {
                         let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl { track_id: next.id });
@@ -283,6 +323,27 @@ impl App {
                     self.now_playing.lyrics_synced = synced;
                     self.now_playing.lyrics_plain = plain;
                     self.now_playing.lyrics_loading = false;
+                }
+            }
+
+            ApiResponse::TrackDetails { track_id, track, cover_url } => {
+                if self.now_playing.track.as_ref().map(|t| t.id) == Some(track_id) {
+                    self.now_playing.track = Some(track);
+                    if let Some(url) = cover_url {
+                        self.now_playing.art_loading = true;
+                        self.now_playing.art_bytes = None;
+                        let _ = self.api_tx.send(ApiRequest::FetchTrackArt { track_id, cover_url: url });
+                    } else {
+                        // No cover URL from track details, fetch using standard metadata
+                        self.fetch_now_playing_metadata();
+                    }
+                }
+            }
+
+            ApiResponse::TrackArt { track_id, image_data } => {
+                if self.now_playing.track.as_ref().map(|t| t.id) == Some(track_id) {
+                    self.now_playing.art_bytes = Some(image_data);
+                    self.now_playing.art_loading = false;
                 }
             }
 
@@ -339,18 +400,38 @@ impl App {
             }
 
             ApiResponse::Error(msg) => {
-                self.set_status(msg.clone(), StatusLevel::Error);
+                let display_msg = if msg.contains("no stream URL available for track") {
+                    // Try to enhance the error message with track name
+                    if let Some(track_id_str) = msg.split("track ").last() {
+                        if let Ok(track_id) = track_id_str.parse::<u64>() {
+                            // Look for this track in the queue
+                            if let Some(track) = self.now_playing.queue.iter().find(|t| t.id == track_id) {
+                                format!("No stream available for \"{}\"", track.title)
+                            } else {
+                                msg.clone()
+                            }
+                        } else {
+                            msg.clone()
+                        }
+                    } else {
+                        msg.clone()
+                    }
+                } else {
+                    msg.clone()
+                };
+
+                self.set_status(display_msg.clone(), StatusLevel::Error);
                 // Also set error on home sections if they're loading
                 if self.home_new_releases.loading {
-                    self.home_new_releases.error = Some(msg.clone());
+                    self.home_new_releases.error = Some(display_msg.clone());
                     self.home_new_releases.loading = false;
                 }
                 if self.home_daily_mixes.loading {
-                    self.home_daily_mixes.error = Some(msg.clone());
+                    self.home_daily_mixes.error = Some(display_msg.clone());
                     self.home_daily_mixes.loading = false;
                 }
                 if self.home_discovery_mixes.loading {
-                    self.home_discovery_mixes.error = Some(msg);
+                    self.home_discovery_mixes.error = Some(display_msg);
                     self.home_discovery_mixes.loading = false;
                 }
             }
@@ -381,6 +462,9 @@ impl App {
                     let next_idx = self.now_playing.queue_index + 1;
                     if let Some(next) = self.now_playing.queue.get(next_idx) {
                         let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl { track_id: next.id });
+                    }
+                    if let Some(current) = self.now_playing.queue.get(self.now_playing.queue_index) {
+                        let _ = self.api_tx.send(ApiRequest::GetTrackDetails { track_id: current.id });
                     }
                     self.fetch_now_playing_metadata();
                 } else {

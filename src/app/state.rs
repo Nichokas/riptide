@@ -170,6 +170,12 @@ pub enum ArtistDetailFocus {
     Bio,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaylistDetailFocus {
+    Tracks,
+    Description,
+}
+
 pub struct ArtistDetail {
     pub artist: Artist,
     pub tracks: StatefulList<Track>,
@@ -189,6 +195,10 @@ pub struct ArtistDetail {
 pub struct PlaylistDetail {
     pub playlist: Playlist,
     pub tracks: StatefulList<Track>,
+    pub focus: PlaylistDetailFocus,
+    pub art_bytes: Option<Vec<u8>>,
+    pub art_loading: bool,
+    pub description_scroll: u16,
 }
 
 // ── Home tab ──────────────────────────────────────────────────────────────────

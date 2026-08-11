@@ -194,9 +194,9 @@ pub struct Playlist {
     pub title: String,
     #[serde(rename = "numberOfTracks", default)]
     pub number_of_tracks: Option<u32>,
-    /// Creation date returned by the API for owned playlists.
     #[serde(default)]
-    pub created: Option<String>,
+    pub description: Option<String>,
+    pub cover: Option<String>,
     #[serde(default, skip_deserializing)]
     pub added_at: Option<String>,
 }
