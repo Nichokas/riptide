@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-08-11
+
+### Added
+- Search endpoints now use v2 API with cursor-based pagination
+- Modularized search and playlist functionality into dedicated modules for better code organization
+- Page Up/Down support for faster navigation through lists
+- Dynamic page loading for search results when cursor approaches end of list
+- Startup log banner for app initialization
+- Streaming buffer to reduce stuttering over mobile data
+
+### Changed
+- Improved logging clarity while reducing verbosity
+- More natural scrolling behavior when navigating upwards
+- Better pagination handling to prevent duplicate data fetches
+
+### Fixed
+- Toast messages now display for exactly 5 seconds instead of 20+ seconds (switched from tick-based to wall-clock timing)
+- Removed ineffective retry logic from stream URL resolution
+- Fixed excessive polling of favorites after each API response
+- Fixed stale position/duration data persisting between tracks
+- Fixed lossless audio streaming with corrected quality validation
+- Improved HTTP authentication for FLAC streaming
+
 ## [0.11.0] - 2026-08-05
 
 ### Added
