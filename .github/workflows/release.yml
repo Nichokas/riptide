@@ -13,7 +13,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libdbus-1-dev libglib2.0-dev libchafa-dev
@@ -30,7 +30,7 @@ jobs:
     name: Build x86_64-linux
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libdbus-1-dev libglib2.0-dev libchafa-dev
@@ -50,7 +50,7 @@ jobs:
           sha256sum riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz > riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: riptide-${{ github.ref_name }}-x86_64-linux-gnu
           path: |
@@ -62,19 +62,18 @@ jobs:
     name: Build x86_64-macos
     runs-on: macos-26-intel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
           brew install chafa
-          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Build release
-        run: cargo build --release --target x86_64-apple-darwin
+        run: cargo build --release
 
       - name: Create archive
         run: |
@@ -84,7 +83,7 @@ jobs:
           sha256sum riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz > riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: riptide-${{ github.ref_name }}-x86_64-apple-darwin
           path: |
@@ -96,7 +95,7 @@ jobs:
     name: Build aarch64-macos (native ARM)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: brew install chafa
@@ -116,7 +115,7 @@ jobs:
           sha256sum riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz > riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz.sha256
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions7upload-artifact@v7
         with:
           name: riptide-${{ github.ref_name }}-aarch64-apple-darwin
           path: |
@@ -131,7 +130,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Extract version
         id: version
@@ -153,7 +152,7 @@ jobs:
           cat release_notes.txt
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: release-artifacts
 
@@ -185,7 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true    # Allowed to fail while AUR pushes are blocked
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Extract version
         id: version
