@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-08-11
+
+### Fixed
+- Fixed Home tab mixes (New Releases, Daily Mixes, Discovery) now show cover art and descriptions
+- Fixed track count displaying correctly in mix detail panes
+- Added synchronized loading for Home tab sections with loading animation in title
+
 ## [0.12.1] - 2026-08-11
 
 ### Fixed
