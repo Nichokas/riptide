@@ -199,18 +199,21 @@ impl App {
                 // 1. Update the detail view while it's open.
                 if let Some(View::PlaylistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.playlist.uuid == uuid {
+                        tracing::debug!("PlaylistTracks response: has_description={}, has_cover={}, total_tracks={}", description.is_some(), cover.is_some(), total);
                         if let Some(desc) = description {
+                            tracing::debug!("Setting description: {}", desc);
                             detail.playlist.description = Some(desc);
                         }
+                        // Update track count from the response
+                        detail.playlist.number_of_tracks = Some(total);
                         if let Some(cov_url) = cover {
+                            tracing::debug!("Setting cover: {}", cov_url);
                             detail.playlist.cover = Some(cov_url.clone());
-                            if !detail.art_loading {
-                                detail.art_loading = true;
-                                let _ = self.api_tx.send(ApiRequest::FetchPlaylistArt {
-                                    uuid: uuid.clone(),
-                                    cover_url: cov_url,
-                                });
-                            }
+                            detail.art_loading = true;
+                            let _ = self.api_tx.send(ApiRequest::FetchPlaylistArt {
+                                uuid: uuid.clone(),
+                                cover_url: cov_url,
+                            });
                         }
                         detail.tracks.append(tracks.clone(), total);
                         detail.tracks.pagination_cursor = next_cursor.clone();

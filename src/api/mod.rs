@@ -323,13 +323,13 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
 
         ApiRequest::LoadMixTracks { uuid, offset } => {
             match client.get_mix_tracks(&uuid, offset).await {
-                Ok((tracks, total)) => ApiResponse::PlaylistTracks {
+                Ok((tracks, total, cover, description)) => ApiResponse::PlaylistTracks {
                     uuid,
                     tracks,
                     total,
                     next_cursor: None,
-                    description: None,
-                    cover: None,
+                    description,
+                    cover,
                 },
                 Err(e) => ApiResponse::Error(e.to_string()),
             }

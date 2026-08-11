@@ -537,13 +537,34 @@ fn render_content(f: &mut Frame, app: &App, area: Rect) {
 fn render_home(f: &mut Frame, app: &App, area: Rect) {
     use crate::app::HomeSectionFocus;
 
+    let any_loading = app.home_new_releases.loading
+        || app.home_daily_mixes.loading
+        || app.home_discovery_mixes.loading;
+
+    let title = if any_loading {
+        let spinner = spinner_char(app.tick);
+        format!(" Loading {} ", spinner)
+    } else {
+        " Home ".to_string()
+    };
+
     let block = Block::default()
-        .title(" Home ")
+        .title(title)
         .borders(Borders::TOP)
         .border_style(Style::default().fg(ACCENT));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
+
+    // Only show sections once all are loaded
+    if any_loading {
+        let loading_text = "Fetching mixes...";
+        let paragraph = Paragraph::new(loading_text)
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center);
+        f.render_widget(paragraph, inner);
+        return;
+    }
 
     let chunks = Layout::default()
         .direction(ratatui::layout::Direction::Vertical)

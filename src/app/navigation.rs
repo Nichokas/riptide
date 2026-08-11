@@ -137,13 +137,16 @@ impl App {
         let uuid = playlist.uuid.clone();
         let mut tracks: StatefulList<crate::api::models::Track> = StatefulList::default();
         tracks.loading = true;
+        // Show spinner for mixes (from Home tab) even if cover isn't loaded yet
+        let is_home_mix = self.current_tab == Tab::Home;
         let has_cover = playlist.cover.is_some();
+        let art_loading = has_cover || is_home_mix;
         let detail = PlaylistDetail {
             playlist: playlist.clone(),
             tracks,
             focus: PlaylistDetailFocus::Tracks,
             art_bytes: None,
-            art_loading: has_cover,
+            art_loading,
             description_scroll: 0,
         };
         self.view_stack.push(View::PlaylistDetail(detail));

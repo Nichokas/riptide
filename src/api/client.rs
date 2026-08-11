@@ -176,9 +176,8 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
         .and_then(|v| v.as_array())
     {
         tracing::debug!("Found items in data.relationships.items.data, count: {}", items_data.len());
-        for (idx, item_ref) in items_data.iter().enumerate() {
+        for item_ref in items_data.iter() {
             if let Some(track_id) = item_ref.get("id").and_then(|v| v.as_str()) {
-                tracing::debug!("  Track {}: ID {}", idx, track_id);
                 track_ids.push(track_id.to_string());
             }
         }
@@ -1803,13 +1802,19 @@ impl ApiClient {
                                 let number_of_tracks = attrs.get("numberOfItems")
                                     .and_then(|v| v.as_u64())
                                     .map(|n| n as u32);
+                                let cover = attrs.get("image")
+                                    .and_then(|v| v.as_str())
+                                    .or_else(|| attrs.get("squareImage").and_then(|v| v.as_str()))
+                                    .map(String::from);
+
+                                tracing::debug!("Mix playlist: title={}, tracks={}, has_cover={}", title, number_of_tracks.unwrap_or(0), cover.is_some());
 
                                 playlists.push(Playlist {
                                     uuid: id.to_string(),
                                     title,
                                     number_of_tracks,
-                                                        description: None,
-                                    cover: None,
+                                    description: None,
+                                    cover,
                                     added_at: None,
                                 });
                             }
@@ -1831,13 +1836,17 @@ impl ApiClient {
                         let number_of_tracks = attrs.get("numberOfItems")
                             .and_then(|v| v.as_u64())
                             .map(|n| n as u32);
+                        let cover = attrs.get("image")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| attrs.get("squareImage").and_then(|v| v.as_str()))
+                            .map(String::from);
 
                         playlists.push(Playlist {
                             uuid: id.to_string(),
                             title,
                             number_of_tracks,
-                                        description: None,
-                            cover: None,
+                            description: None,
+                            cover,
                             added_at: None,
                         });
                     }
@@ -1869,11 +1878,11 @@ impl ApiClient {
         self.get_mixes("/userDiscoveryMixes/me").await
     }
 
-    pub async fn get_mix_tracks(&self, mix_id: &str, offset: u32) -> Result<(Vec<Track>, u32)> {
+    pub async fn get_mix_tracks(&self, mix_id: &str, offset: u32) -> Result<(Vec<Track>, u32, Option<String>, Option<String>)> {
         let token = self.token.read().await.clone();
-        let url = format!("{OPENAPI_BASE}/playlists/{mix_id}?countryCode=US&include=items.artists&offset={offset}&limit=100");
+        let url = format!("{OPENAPI_BASE}/playlists/{mix_id}?countryCode=US&include=items.artists,coverArt&offset={offset}&limit=100");
 
-        tracing::debug!("API request: GET /playlists/{} with include=items.artists", mix_id);
+        tracing::debug!("API request: GET /playlists/{} with include=items.artists,coverArt", mix_id);
 
         let resp = self
             .http
@@ -1895,8 +1904,8 @@ impl ApiClient {
         let body = resp.text().await?;
         let api_resp: serde_json::Value = serde_json::from_str(&body)?;
 
-        let (tracks, total, _, _, _) = parse_v2_playlist_tracks(&api_resp)?;
-        Ok((tracks, total))
+        let (tracks, total, _, description, cover) = parse_v2_playlist_tracks(&api_resp)?;
+        Ok((tracks, total, cover, description))
     }
 
     pub async fn get_new_release_mixes(&self) -> Result<Vec<Playlist>> {
