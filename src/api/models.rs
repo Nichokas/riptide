@@ -220,14 +220,6 @@ pub struct FavoritePlaylistEntry {
 
 // ── Search ────────────────────────────────────────────────────────────────────
 
-// ── Artist bio ────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct ArtistBioResponse {
-    pub text: Option<String>,
-    pub summary: Option<String>,
-}
-
 // ── Lyrics ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
