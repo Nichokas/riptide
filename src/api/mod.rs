@@ -89,7 +89,7 @@ pub enum ApiResponse {
     FavoriteRemoved { track_id: u64 },
     ArtistUnfollowed { artist_id: u64 },
     FavAlbums(Vec<Album>, u32),
-    AlbumFavorited,
+    AlbumFavorited { album_id: u64 },
     AlbumUnfavorited { album_id: u64 },
     PlaylistSaved,
     PlaylistRemoved { uuid: String },
@@ -236,9 +236,7 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         ApiRequest::LoadArtistBio { artist_id } => {
             // A missing bio (404 or empty) is not an error — return empty string.
             let raw = match client.get_artist_bio(artist_id).await {
-                Ok(resp) => resp.text
-                    .or(resp.summary)
-                    .unwrap_or_default(),
+                Ok(bio_text) => bio_text,
                 Err(_) => String::new(),
             };
             let text = strip_wimplinks(&raw);
@@ -247,7 +245,7 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
 
         ApiRequest::LoadAlbum { album_id } => {
             match client.get_album(album_id).await {
-                Ok(album) => ApiResponse::AlbumLoaded { album },
+                Ok((album, _cover_url)) => ApiResponse::AlbumLoaded { album },
                 Err(e) => ApiResponse::Error(format!("album: {e}")),
             }
         }
@@ -260,7 +258,11 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         }
 
         ApiRequest::FetchAlbumArt { album_id, cover_id } => {
-            let url = format!("https://resources.tidal.com/images/{}/320x320.jpg", cover_id.replace('-', "/"));
+            let url = if cover_id.starts_with("http") {
+                cover_id.clone()
+            } else {
+                format!("https://resources.tidal.com/images/{}/320x320.jpg", cover_id.replace('-', "/"))
+            };
             match client.fetch_bytes(&url).await {
                 Ok(data) => ApiResponse::AlbumArt { album_id, image_data: data },
                 Err(e) => ApiResponse::Error(format!("album art: {e}")),
@@ -398,7 +400,7 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         },
 
         ApiRequest::FavoriteAlbum { album_id } => match client.add_favorite_album(album_id).await {
-            Ok(()) => ApiResponse::AlbumFavorited,
+            Ok(()) => ApiResponse::AlbumFavorited { album_id },
             Err(e) => ApiResponse::Error(format!("favorite album: {e}")),
         },
 
@@ -417,12 +419,12 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             Err(e) => ApiResponse::Error(format!("remove playlist: {e}")),
         },
 
-        ApiRequest::TrackRadio { track_id } => match client.get_track_radio(track_id, 25).await {
+        ApiRequest::TrackRadio { track_id } => match client.get_track_radio(track_id).await {
             Ok(page) => ApiResponse::RadioTracks { tracks: page.items },
             Err(e) => ApiResponse::Error(format!("radio: {e}")),
         },
 
-        ApiRequest::ArtistRadio { artist_id } => match client.get_artist_radio(artist_id, 25).await {
+        ApiRequest::ArtistRadio { artist_id } => match client.get_artist_radio(artist_id).await {
             Ok(page) => ApiResponse::RadioTracks { tracks: page.items },
             Err(e) => ApiResponse::Error(format!("radio: {e}")),
         },

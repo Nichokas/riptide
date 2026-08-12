@@ -148,7 +148,7 @@ impl<T> StatefulList<T> {
         !self.loading
             && !self.exhausted
             && !self.items.is_empty()
-            && self.selected >= self.items.len().saturating_sub(2)
+            && self.selected >= self.items.len().saturating_sub(10)
             && self.items.len() > self.last_load_triggered_at
     }
 

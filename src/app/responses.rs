@@ -26,16 +26,24 @@ impl App {
                 if self.fav_albums_sort.is_none() {
                     self.fav_albums.items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
                 }
+                self.rebuild_favorite_album_ids();
                 self.load_fav_albums();
             }
 
-            ApiResponse::AlbumFavorited => {}
+            ApiResponse::AlbumFavorited { album_id } => {
+                self.favorite_album_ids.insert(album_id);
+                self.fav_albums.items.clear();
+                self.fav_albums.next_offset = 0;
+                self.fav_albums.exhausted = false;
+                self.load_fav_albums();
+            }
 
             ApiResponse::AlbumUnfavorited { album_id } => {
                 self.fav_albums.items.retain(|a| a.id != album_id);
                 self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
                 self.fav_albums.selected = self.fav_albums.selected
                     .min(self.fav_albums.items.len().saturating_sub(1));
+                self.favorite_album_ids.remove(&album_id);
             }
 
             ApiResponse::PlaylistSaved => {}
@@ -84,6 +92,22 @@ impl App {
                         let total = detail.tracks.total.max(n);
                         detail.tracks.append(tracks, total);
                         detail.tracks.exhausted = true;
+
+                        if detail.albums.items.is_empty() && !detail.albums.loading {
+                            let artist_id = detail.artist.id;
+                            detail.albums.loading = true;
+                            let _ = self.api_tx.send(ApiRequest::LoadArtistAlbums { artist_id });
+                        }
+                        if detail.eps.items.is_empty() && !detail.eps.loading {
+                            let artist_id = detail.artist.id;
+                            detail.eps.loading = true;
+                            let _ = self.api_tx.send(ApiRequest::LoadArtistEPs { artist_id });
+                        }
+                        if detail.singles.items.is_empty() && !detail.singles.loading {
+                            let artist_id = detail.artist.id;
+                            detail.singles.loading = true;
+                            let _ = self.api_tx.send(ApiRequest::LoadArtistSingles { artist_id });
+                        }
                     }
                 }
             }
@@ -139,7 +163,13 @@ impl App {
             ApiResponse::AlbumLoaded { album } => {
                 if let Some(View::AlbumDetail(detail)) = self.view_stack.last_mut() {
                     if detail.album.id == album.id {
+                        let album_id = album.id;
+                        let cover = album.cover.clone();
                         detail.album = album;
+                        if let Some(cover_url) = cover {
+                            detail.art_loading = true;
+                            let _ = self.api_tx.send(ApiRequest::FetchAlbumArt { album_id, cover_id: cover_url });
+                        }
                     }
                 }
             }

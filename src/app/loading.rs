@@ -65,6 +65,36 @@ impl App {
         }
     }
 
+    pub fn load_more_artist_albums(&mut self) {
+        if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
+            if !detail.albums.loading && !detail.albums.exhausted {
+                let artist_id = detail.artist.id;
+                detail.albums.loading = true;
+                let _ = self.api_tx.send(ApiRequest::LoadArtistAlbums { artist_id });
+            }
+        }
+    }
+
+    pub fn load_more_artist_eps(&mut self) {
+        if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
+            if !detail.eps.loading && !detail.eps.exhausted {
+                let artist_id = detail.artist.id;
+                detail.eps.loading = true;
+                let _ = self.api_tx.send(ApiRequest::LoadArtistEPs { artist_id });
+            }
+        }
+    }
+
+    pub fn load_more_artist_singles(&mut self) {
+        if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
+            if !detail.singles.loading && !detail.singles.exhausted {
+                let artist_id = detail.artist.id;
+                detail.singles.loading = true;
+                let _ = self.api_tx.send(ApiRequest::LoadArtistSingles { artist_id });
+            }
+        }
+    }
+
     pub(crate) fn fetch_now_playing_metadata(&mut self) {
         self.fetch_now_playing_art();
         self.fetch_lyrics();

@@ -37,6 +37,7 @@ pub struct App {
     pub playlists: StatefulList<Playlist>,
     pub favorites: StatefulList<Track>,
     pub favorite_track_ids: HashSet<u64>,
+    pub favorite_album_ids: HashSet<u64>,
     pub search:    SearchState,
     pub command:   CommandState,
     pub sort_palette:  SortPalette,
@@ -84,6 +85,7 @@ impl App {
             playlists:   StatefulList::default(),
             favorites:   StatefulList::default(),
             favorite_track_ids: HashSet::new(),
+            favorite_album_ids: HashSet::new(),
             search:      SearchState::default(),
             command:     CommandState::default(),
             sort_palette:    SortPalette::default(),
@@ -149,6 +151,10 @@ impl App {
 
     pub(crate) fn rebuild_favorite_track_ids(&mut self) {
         self.favorite_track_ids = self.favorites.items.iter().map(|t| t.id).collect();
+    }
+
+    pub(crate) fn rebuild_favorite_album_ids(&mut self) {
+        self.favorite_album_ids = self.fav_albums.items.iter().map(|a| a.id).collect();
     }
 
     /// Copy a share URL to the system clipboard and confirm via the status toast.

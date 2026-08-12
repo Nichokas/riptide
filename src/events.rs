@@ -1116,9 +1116,24 @@ fn check_load_more(app: &mut App) {
         }
     }
     if let Some(View::ArtistDetail(detail)) = app.view_stack.last() {
-        if detail.tracks.should_load_more() {
-            app.load_more_artist_tracks();
-            return;
+        match detail.focus {
+            ArtistDetailFocus::Tracks if detail.tracks.should_load_more() => {
+                app.load_more_artist_tracks();
+                return;
+            }
+            ArtistDetailFocus::Albums if detail.albums.should_load_more() => {
+                app.load_more_artist_albums();
+                return;
+            }
+            ArtistDetailFocus::EPs if detail.eps.should_load_more() => {
+                app.load_more_artist_eps();
+                return;
+            }
+            ArtistDetailFocus::Singles if detail.singles.should_load_more() => {
+                app.load_more_artist_singles();
+                return;
+            }
+            _ => {}
         }
     }
 

@@ -221,6 +221,15 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
                             .and_then(|v| v.as_str())
                             .unwrap_or("Unknown");
 
+                        let media_metadata = attrs.get("mediaTags")
+                            .and_then(|v| v.as_array())
+                            .map(|tags| {
+                                let tag_strs: Vec<String> = tags.iter()
+                                    .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                                    .collect();
+                                MediaMetadata { tags: tag_strs }
+                            });
+
                         tracks.push(Track {
                             id,
                             title: title.to_string(),
@@ -239,9 +248,10 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
                                 audio_quality: None,
                                 media_metadata: None,
                                 added_at: None,
+                                album_type: None,
                             },
                             audio_quality: None,
-                            media_metadata: None,
+                            media_metadata,
                             added_at: None,
                         });
                     }
@@ -271,6 +281,184 @@ fn parse_v2_playlist_tracks(api_resp: &serde_json::Value) -> Result<(Vec<Track>,
     }
 
     Ok((tracks, total, next_url, description, cover))
+}
+
+fn parse_radio_response(api_resp: &serde_json::Value) -> Result<Vec<Track>> {
+    tracing::debug!("Parsing radio response");
+
+    // Radio endpoint returns a playlist in data, with tracks in playlist.relationships.items.data
+    let mut track_ids = Vec::new();
+
+    // Find the playlist in the included array
+    let playlist_obj = if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+        included.iter().find(|item| item.get("type").and_then(|v| v.as_str()) == Some("playlists"))
+    } else {
+        None
+    };
+
+    if let Some(playlist) = playlist_obj {
+        if let Some(track_refs) = playlist.get("relationships")
+            .and_then(|v| v.get("items"))
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_array()) {
+            tracing::debug!("Found {} track references in playlist", track_refs.len());
+            for track_ref in track_refs.iter() {
+                if let Some(track_id) = track_ref.get("id").and_then(|v| v.as_str()) {
+                    track_ids.push(track_id.to_string());
+                }
+            }
+        }
+    } else {
+        tracing::debug!("No playlist found in included array");
+    }
+
+    tracing::debug!("Extracted {} track IDs from radio playlist", track_ids.len());
+
+    // Build a map of track IDs to track details from the included array
+    let mut track_map = HashMap::new();
+    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+        for item in included {
+            if item.get("type").and_then(|v| v.as_str()) == Some("tracks") {
+                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                    track_map.insert(id.to_string(), item.clone());
+                }
+            }
+        }
+        tracing::debug!("Built track_map with {} tracks", track_map.len());
+    }
+
+    let artist_map = build_artist_map(api_resp);
+
+    let mut tracks = Vec::new();
+    for track_id in track_ids {
+        if let Some(track_obj) = track_map.get(&track_id) {
+            if let Some(attrs) = track_obj.get("attributes").and_then(|v| v.as_object()) {
+                if let Some(title) = attrs.get("title").and_then(|v| v.as_str()) {
+                    if let Ok(id) = track_id.parse::<u64>() {
+                        let duration = parse_iso_duration(
+                            attrs.get("duration")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("PT0S")
+                        );
+
+                        let artist_name = extract_artist_from_track(track_obj, &artist_map);
+
+                        let album_title = attrs.get("album")
+                            .and_then(|v| v.as_object())
+                            .and_then(|obj| obj.get("title"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown");
+
+                        let media_metadata = attrs.get("mediaTags")
+                            .and_then(|v| v.as_array())
+                            .map(|tags| {
+                                let tag_strs: Vec<String> = tags.iter()
+                                    .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                                    .collect();
+                                MediaMetadata { tags: tag_strs }
+                            });
+
+                        tracks.push(Track {
+                            id,
+                            title: title.to_string(),
+                            duration,
+                            artist: Some(ArtistRef {
+                                name: artist_name,
+                            }),
+                            artists: Vec::new(),
+                            album: Album {
+                                id: 0,
+                                title: album_title.to_string(),
+                                number_of_tracks: None,
+                                release_date: None,
+                                cover: None,
+                                artist: None,
+                                audio_quality: None,
+                                media_metadata: None,
+                                added_at: None,
+                                album_type: None,
+                            },
+                            audio_quality: None,
+                            media_metadata,
+                            added_at: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    tracing::debug!("Parsed {} radio tracks total", tracks.len());
+    Ok(tracks)
+}
+
+fn parse_artist_albums(api_resp: &serde_json::Value) -> Result<Vec<Album>> {
+    let mut album_ids = Vec::new();
+    if let Some(items_data) = api_resp.get("data").and_then(|v| v.as_array()) {
+        for item_ref in items_data.iter() {
+            if let Some(album_id) = item_ref.get("id").and_then(|v| v.as_str()) {
+                album_ids.push(album_id.to_string());
+            }
+        }
+    }
+
+    let mut album_map = HashMap::new();
+    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+        for item in included {
+            if item.get("type").and_then(|v| v.as_str()) == Some("albums") {
+                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                    album_map.insert(id.to_string(), item.clone());
+                }
+            }
+        }
+    }
+
+    let mut albums = Vec::new();
+    for album_id in album_ids {
+        if let Some(album_obj) = album_map.get(&album_id) {
+            if let Some(attrs) = album_obj.get("attributes").and_then(|v| v.as_object()) {
+                if let Some(title) = attrs.get("title").and_then(|v| v.as_str()) {
+                    if let Ok(id) = album_id.parse::<u64>() {
+                        let album_type = attrs.get("albumType")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        let number_of_items = attrs.get("numberOfItems")
+                            .and_then(|v| v.as_u64())
+                            .map(|n| n as u32);
+
+                        let release_date = attrs.get("releaseDate")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        let media_metadata = attrs.get("mediaTags")
+                            .and_then(|v| v.as_array())
+                            .map(|tags| {
+                                let tag_strs: Vec<String> = tags.iter()
+                                    .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                                    .collect();
+                                MediaMetadata { tags: tag_strs }
+                            });
+
+                        albums.push(Album {
+                            id,
+                            title: title.to_string(),
+                            number_of_tracks: number_of_items,
+                            release_date,
+                            cover: None,
+                            artist: None,
+                            audio_quality: None,
+                            media_metadata,
+                            added_at: None,
+                            album_type,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(albums)
 }
 
 fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -> Result<(Vec<Track>, u32, Option<String>)> {
@@ -325,6 +513,15 @@ fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -
                             .and_then(|v| v.as_str())
                             .unwrap_or("Unknown");
 
+                        let media_metadata = attrs.get("mediaTags")
+                            .and_then(|v| v.as_array())
+                            .map(|tags| {
+                                let tag_strs: Vec<String> = tags.iter()
+                                    .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                                    .collect();
+                                MediaMetadata { tags: tag_strs }
+                            });
+
                         tracks.push(Track {
                             id,
                             title: title.to_string(),
@@ -343,15 +540,17 @@ fn parse_playlist_relationship_items(api_resp: &serde_json::Value, total: u32) -
                                 audio_quality: None,
                                 media_metadata: None,
                                 added_at: None,
+                                album_type: None,
                             },
                             audio_quality: None,
-                            media_metadata: None,
+                            media_metadata,
                             added_at: None,
                         });
                     }
                 }
             }
         } else {
+            tracing::debug!("Track {} not found in track_map (map has {} entries)", track_id, track_map.len());
         }
     }
 
@@ -479,6 +678,7 @@ fn parse_v2_track_details(api_resp: &serde_json::Value) -> Result<(Track, Option
         audio_quality: None,
         media_metadata: None,
         added_at: None,
+        album_type: None,
     };
 
     let mut cover_url: Option<String> = None;
@@ -688,6 +888,7 @@ fn parse_search_track_page(api_resp: &serde_json::Value) -> Result<SearchTrackPa
                     audio_quality: None,
                     media_metadata: None,
                     added_at: None,
+                    album_type: None,
                 },
                 audio_quality: item["attributes"]["audioQuality"].as_str().map(String::from),
                 media_metadata: None,
@@ -1066,46 +1267,219 @@ impl ApiClient {
         .await
     }
 
-    pub async fn get_artist_top_tracks(&self, artist_id: u64, limit: u32) -> Result<Page<Track>> {
-        self.get(
-            &format!("/artists/{artist_id}/toptracks"),
-            &[("limit", limit.to_string())],
-        )
-        .await
+    pub async fn get_artist_top_tracks(&self, artist_id: u64, _limit: u32) -> Result<Page<Track>> {
+        tracing::debug!("Retrieving all top tracks for artist {}", artist_id);
+
+        let token = self.token.read().await.clone();
+        let mut all_tracks = Vec::new();
+        let mut next_url: Option<String> = Some(format!("{OPENAPI_BASE}/artists/{artist_id}/relationships/tracks?locale=en-US&include=tracks.albums,tracks.artists&collapseBy=FINGERPRINT"));
+
+        while let Some(url) = next_url {
+            let resp = self
+                .http
+                .get(&url)
+                .bearer_auth(&token)
+                .header("Accept", "application/vnd.api+json")
+                .send()
+                .await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                let body = resp.text().await?;
+                tracing::error!("API error on /artists/{}/relationships/tracks: {}", artist_id, body);
+                anyhow::bail!("HTTP {}", status);
+            }
+
+            let body = resp.text().await?;
+            let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+            let (mut tracks, _total, _next_cursor) = parse_playlist_relationship_items(&api_resp, 0)?;
+            all_tracks.append(&mut tracks);
+
+            next_url = api_resp.get("links")
+                .and_then(|v| v.get("next"))
+                .and_then(|v| v.as_str())
+                .map(|s| format!("{OPENAPI_BASE}{}", s));
+        }
+
+        tracing::debug!("Retrieved {} total top tracks", all_tracks.len());
+
+        let total = all_tracks.len() as u32;
+        Ok(Page {
+            items: all_tracks,
+            total,
+        })
     }
 
-    pub async fn get_artist_albums(&self, artist_id: u64, limit: u32) -> Result<Page<Album>> {
-        self.get(
-            &format!("/artists/{artist_id}/albums"),
-            &[("limit", limit.to_string())],
-        )
-        .await
+    pub async fn get_artist_albums(&self, artist_id: u64, _limit: u32) -> Result<Page<Album>> {
+        tracing::debug!("Retrieving all albums for artist {}", artist_id);
+
+        let token = self.token.read().await.clone();
+        let mut all_albums = Vec::new();
+        let mut next_url: Option<String> = Some(format!("{OPENAPI_BASE}/artists/{artist_id}/relationships/albums?locale=en-US&include=albums"));
+
+        while let Some(url) = next_url {
+            let resp = self
+                .http
+                .get(&url)
+                .bearer_auth(&token)
+                .header("Accept", "application/vnd.api+json")
+                .send()
+                .await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                let body = resp.text().await?;
+                tracing::error!("API error on /artists/{}/relationships/albums: {}", artist_id, body);
+                anyhow::bail!("HTTP {}", status);
+            }
+
+            let body = resp.text().await?;
+            let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+            let mut albums = parse_artist_albums(&api_resp)?;
+            all_albums.append(&mut albums);
+
+            next_url = api_resp.get("links")
+                .and_then(|v| v.get("next"))
+                .and_then(|v| v.as_str())
+                .map(|s| format!("{OPENAPI_BASE}{}", s));
+        }
+
+        let filtered: Vec<Album> = all_albums.into_iter()
+            .filter(|a| a.album_type.as_deref() == Some("ALBUM"))
+            .collect();
+
+        tracing::debug!("Retrieved {} total albums", filtered.len());
+
+        let total = filtered.len() as u32;
+        Ok(Page {
+            items: filtered,
+            total,
+        })
     }
 
-    pub async fn get_artist_eps(&self, artist_id: u64, limit: u32) -> Result<Page<Album>> {
-        self.get(
-            &format!("/artists/{artist_id}/albums"),
-            &[
-                ("limit", limit.to_string()),
-                ("filter", "EPSANDSINGLES".to_string()),
-            ],
-        )
-        .await
+    pub async fn get_artist_eps(&self, artist_id: u64, _limit: u32) -> Result<Page<Album>> {
+        let token = self.token.read().await.clone();
+        let mut all_albums = Vec::new();
+        let mut next_url: Option<String> = Some(format!("{OPENAPI_BASE}/artists/{artist_id}/relationships/albums?locale=en-US&include=albums"));
+
+        while let Some(url) = next_url {
+            let resp = self
+                .http
+                .get(&url)
+                .bearer_auth(&token)
+                .header("Accept", "application/vnd.api+json")
+                .send()
+                .await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                let body = resp.text().await?;
+                tracing::error!("API error on /artists/{}/relationships/albums: {}", artist_id, body);
+                anyhow::bail!("HTTP {}", status);
+            }
+
+            let body = resp.text().await?;
+            let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+            let mut albums = parse_artist_albums(&api_resp)?;
+            all_albums.append(&mut albums);
+
+            next_url = api_resp.get("links")
+                .and_then(|v| v.get("next"))
+                .and_then(|v| v.as_str())
+                .map(|s| format!("{OPENAPI_BASE}{}", s));
+        }
+
+        let filtered: Vec<Album> = all_albums.into_iter()
+            .filter(|a| a.album_type.as_deref() == Some("EP"))
+            .collect();
+
+        let total = filtered.len() as u32;
+        Ok(Page {
+            items: filtered,
+            total,
+        })
     }
 
-    pub async fn get_artist_singles(&self, artist_id: u64, limit: u32) -> Result<Page<Album>> {
-        self.get(
-            &format!("/artists/{artist_id}/albums"),
-            &[
-                ("limit", limit.to_string()),
-                ("filter", "EPSANDSINGLES".to_string()),
-            ],
-        )
-        .await
+    pub async fn get_artist_singles(&self, artist_id: u64, _limit: u32) -> Result<Page<Album>> {
+        let token = self.token.read().await.clone();
+        let mut all_albums = Vec::new();
+        let mut next_url: Option<String> = Some(format!("{OPENAPI_BASE}/artists/{artist_id}/relationships/albums?locale=en-US&include=albums"));
+
+        while let Some(url) = next_url {
+            let resp = self
+                .http
+                .get(&url)
+                .bearer_auth(&token)
+                .header("Accept", "application/vnd.api+json")
+                .send()
+                .await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                let body = resp.text().await?;
+                tracing::error!("API error on /artists/{}/relationships/albums: {}", artist_id, body);
+                anyhow::bail!("HTTP {}", status);
+            }
+
+            let body = resp.text().await?;
+            let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+            let mut albums = parse_artist_albums(&api_resp)?;
+            all_albums.append(&mut albums);
+
+            next_url = api_resp.get("links")
+                .and_then(|v| v.get("next"))
+                .and_then(|v| v.as_str())
+                .map(|s| format!("{OPENAPI_BASE}{}", s));
+        }
+
+        let filtered: Vec<Album> = all_albums.into_iter()
+            .filter(|a| a.album_type.as_deref() == Some("SINGLE"))
+            .collect();
+
+        let total = filtered.len() as u32;
+        Ok(Page {
+            items: filtered,
+            total,
+        })
     }
 
-    pub async fn get_artist_bio(&self, artist_id: u64) -> Result<ArtistBioResponse> {
-        self.get(&format!("/artists/{artist_id}/bio"), &[]).await
+    pub async fn get_artist_bio(&self, artist_id: u64) -> Result<String> {
+        let token = self.token.read().await.clone();
+        let url = format!("{OPENAPI_BASE}/artists/{artist_id}/relationships/biography?countryCode={}&include=biography", self.config.country_code);
+
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await?;
+            tracing::error!("API error {} fetching artist bio for {artist_id}: {}", status, body);
+            anyhow::bail!("HTTP {} fetching artist bio", status);
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        let bio_text = api_resp.get("included")
+            .and_then(|arr| arr.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|obj| obj.get("attributes"))
+            .and_then(|attrs| attrs.get("text"))
+            .and_then(|text| text.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+
+        tracing::debug!("Retrieved bio for artist {}: {} chars", artist_id, bio_text.len());
+        Ok(bio_text)
     }
 
     // ── Playlists ─────────────────────────────────────────────────────────────
@@ -1445,8 +1819,88 @@ impl ApiClient {
 
     // ── Albums ────────────────────────────────────────────────────────────────
 
-    pub async fn get_album(&self, album_id: u64) -> Result<Album> {
-        self.get(&format!("/albums/{album_id}"), &[]).await
+    pub async fn get_album(&self, album_id: u64) -> Result<(Album, Option<String>)> {
+        let token = self.token.read().await.clone();
+        let url = format!("{OPENAPI_BASE}/albums/{album_id}?include=coverArt");
+
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await?;
+            tracing::error!("API error {} fetching album {album_id}: {}", status, body);
+            anyhow::bail!("HTTP {} fetching album", status);
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        let album_data = api_resp.get("data").context("missing data field")?;
+        let album_id = album_data.get("id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<u64>().ok())
+            .context("missing or invalid album id")?;
+
+        let attrs = album_data.get("attributes").context("missing attributes")?;
+        let title = attrs.get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+
+        let release_date = attrs.get("releaseDate")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let number_of_tracks = attrs.get("numberOfTracks")
+            .or_else(|| attrs.get("numberOfItems"))
+            .and_then(|v| v.as_u64())
+            .map(|n| n as u32);
+
+        // Extract cover art from the included array
+        let mut cover_url: Option<String> = None;
+        if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+            for item in included {
+                if item.get("type").and_then(|v| v.as_str()) == Some("artworks") {
+                    if let Some(files) = item.get("attributes")
+                        .and_then(|v| v.get("files"))
+                        .and_then(|v| v.as_array()) {
+                        if let Some(file) = files.iter().find(|f| {
+                            f.get("meta")
+                                .and_then(|m| m.get("width"))
+                                .and_then(|w| w.as_u64())
+                                .map(|w| w == 320)
+                                .unwrap_or(false)
+                        }) {
+                            cover_url = file.get("href")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let album = Album {
+            id: album_id,
+            title,
+            number_of_tracks,
+            release_date,
+            cover: cover_url.clone(),
+            artist: None,
+            audio_quality: None,
+            media_metadata: None,
+            added_at: None,
+            album_type: None,
+        };
+
+        Ok((album, cover_url))
     }
 
     pub async fn get_album_tracks(&self, album_id: u64) -> Result<Page<Track>> {
@@ -1459,20 +1913,70 @@ impl ApiClient {
 
     // ── Radio ─────────────────────────────────────────────────────────────────
 
-    pub async fn get_track_radio(&self, track_id: u64, limit: u32) -> Result<Page<Track>> {
-        self.get(
-            &format!("/tracks/{track_id}/radio"),
-            &[("limit", limit.to_string())],
-        )
-        .await
+    pub async fn get_track_radio(&self, track_id: u64) -> Result<Page<Track>> {
+        tracing::debug!("Fetching radio for track {}", track_id);
+        let token = self.token.read().await.clone();
+        let url = format!("{OPENAPI_BASE}/tracks/{track_id}/relationships/radio?locale=en-US&include=radio.items.albums,radio.items.artists");
+
+        tracing::debug!("Radio URL: {}", url);
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await?;
+            tracing::error!("API error on /tracks/{}/relationships/radio: {}", track_id, body);
+            anyhow::bail!("HTTP {}", status);
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        let tracks = parse_radio_response(&api_resp)?;
+        tracing::debug!("Track radio parsed {} tracks", tracks.len());
+        let total = tracks.len() as u32;
+        Ok(Page {
+            items: tracks,
+            total,
+        })
     }
 
-    pub async fn get_artist_radio(&self, artist_id: u64, limit: u32) -> Result<Page<Track>> {
-        self.get(
-            &format!("/artists/{artist_id}/radio"),
-            &[("limit", limit.to_string())],
-        )
-        .await
+    pub async fn get_artist_radio(&self, artist_id: u64) -> Result<Page<Track>> {
+        tracing::debug!("Fetching radio for artist {}", artist_id);
+        let token = self.token.read().await.clone();
+        let url = format!("{OPENAPI_BASE}/artists/{artist_id}/relationships/radio?locale=en-US&include=radio.items.albums,radio.items.artists");
+
+        tracing::debug!("Radio URL: {}", url);
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await?;
+            tracing::error!("API error on /artists/{}/relationships/radio: {}", artist_id, body);
+            anyhow::bail!("HTTP {}", status);
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        let tracks = parse_radio_response(&api_resp)?;
+        tracing::debug!("Artist radio parsed {} tracks", tracks.len());
+        let total = tracks.len() as u32;
+        Ok(Page {
+            items: tracks,
+            total,
+        })
     }
 
     // ── Lyrics ───────────────────────────────────────────────────────────────

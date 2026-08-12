@@ -902,27 +902,27 @@ fn render_carousel_tabs(
     }
 
     let tabs = vec![
-        (" Top Tracks", ArtistDetailFocus::Tracks),
-        ("Albums", ArtistDetailFocus::Albums),
-        ("EPs", ArtistDetailFocus::EPs),
-        ("Singles ", ArtistDetailFocus::Singles),
+        (format!(" Top Tracks ({})", detail.tracks.items.len()), ArtistDetailFocus::Tracks),
+        (format!("Albums ({})", detail.albums.items.len()), ArtistDetailFocus::Albums),
+        (format!("EPs ({})", detail.eps.items.len()), ArtistDetailFocus::EPs),
+        (format!("Singles ({})", detail.singles.items.len()), ArtistDetailFocus::Singles),
     ];
 
-        // Spans + Line seperators. can be changed or removed completely. 
+        // Spans + Line seperators. can be changed or removed completely.
     let mut line_spans = Vec::new();
     for (i, (name, focus)) in tabs.iter().enumerate() {
         if i > 0 {
             line_spans.push(Span::styled(" - ", Style::default().fg(DIM)));
         }
-        
-        let selected = detail.focus == *focus;  
+
+        let selected = detail.focus == *focus;
         let style = if selected {
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(DIM)
         };
-        
-        line_spans.push(Span::styled(name.to_string(), style));
+
+        line_spans.push(Span::styled(name.clone(), style));
     }
     //block styling (made it dim cuz that fit better with the surrounding UI)
     let block = Block::default()
@@ -1050,7 +1050,13 @@ fn render_artist_albums(
             let badge = album.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
             let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
 
-            ListItem::new(Line::from(vec![title_span, badge_span]))
+            let heart = if app.favorite_album_ids.contains(&album.id) {
+                Span::raw(" ❤")
+            } else {
+                Span::raw("")
+            };
+
+            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
         })
         .collect();
 
@@ -1104,7 +1110,13 @@ fn render_artist_eps(
             let badge = album.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
             let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
 
-            ListItem::new(Line::from(vec![title_span, badge_span]))
+            let heart = if app.favorite_album_ids.contains(&album.id) {
+                Span::raw(" ❤")
+            } else {
+                Span::raw("")
+            };
+
+            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
         })
         .collect();
 
@@ -1158,7 +1170,13 @@ fn render_artist_singles(
             let badge = album.quality_badge().map(|b| format!(" [{b}]")).unwrap_or_default();
             let badge_span = Span::styled(badge, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD));
 
-            ListItem::new(Line::from(vec![title_span, badge_span]))
+            let heart = if app.favorite_album_ids.contains(&album.id) {
+                Span::raw(" ❤")
+            } else {
+                Span::raw("")
+            };
+
+            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
         })
         .collect();
 
@@ -1348,13 +1366,37 @@ fn render_album_detail(f: &mut Frame, app: &App, detail: &crate::app::AlbumDetai
 
     let quality_badge = detail.album.quality_badge();
 
-    let mut meta_lines = vec![
-        Line::from(Span::styled(
-            detail.album.title.as_str(),
+    let mut meta_lines = Vec::new();
+
+    // Wrap title across multiple lines if needed
+    let max_width = (header_cols[1].width as usize).saturating_sub(2); // account for borders
+    let mut title_line = String::new();
+    for word in detail.album.title.split_whitespace() {
+        if title_line.len() + word.len() + 1 <= max_width {
+            if !title_line.is_empty() {
+                title_line.push(' ');
+            }
+            title_line.push_str(word);
+        } else {
+            if !title_line.is_empty() {
+                meta_lines.push(Line::from(Span::styled(
+                    title_line.clone(),
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                )));
+                title_line.clear();
+            }
+            title_line.push_str(word);
+        }
+    }
+    if !title_line.is_empty() {
+        meta_lines.push(Line::from(Span::styled(
+            title_line,
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(artist_name, Style::default().fg(Color::White))),
-    ];
+        )));
+    }
+
+    meta_lines.push(Line::from(Span::styled(artist_name, Style::default().fg(Color::White))));
+
     let mut counts_spans = vec![
         Span::styled(format!("{year}  •  {n_tracks} tracks"), Style::default().fg(DIM)),
     ];

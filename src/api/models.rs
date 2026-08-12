@@ -67,6 +67,8 @@ pub struct Album {
     pub media_metadata: Option<MediaMetadata>,
     #[serde(default, skip_deserializing)]
     pub added_at: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub album_type: Option<String>,
 }
 
 impl Album {
