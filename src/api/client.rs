@@ -1904,11 +1904,45 @@ impl ApiClient {
     }
 
     pub async fn get_album_tracks(&self, album_id: u64) -> Result<Page<Track>> {
-        self.get(
-            &format!("/albums/{album_id}/tracks"),
-            &[("limit", "50".to_string())],
-        )
-        .await
+        tracing::debug!("Fetching album tracks for album {}", album_id);
+        let token = self.token.read().await.clone();
+        let mut tracks = Vec::new();
+        let mut next_url = Some(format!("{OPENAPI_BASE}/albums/{album_id}/relationships/items?locale=en-US&include=items.albums,items.artists"));
+
+        while let Some(url) = next_url {
+            tracing::debug!("Fetching album tracks page: {}", url);
+            let resp = self
+                .http
+                .get(&url)
+                .bearer_auth(&token)
+                .header("Accept", "application/vnd.api+json")
+                .send()
+                .await?;
+
+            let status = resp.status();
+            if !status.is_success() {
+                let body = resp.text().await?;
+                tracing::error!("API error fetching album tracks: {}", body);
+                anyhow::bail!("HTTP {} fetching album tracks", status);
+            }
+
+            let body = resp.text().await?;
+            let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+            let (page_tracks, _total, next_cursor) = parse_playlist_relationship_items(&api_resp, tracks.len() as u32)?;
+
+            tracks.extend(page_tracks);
+            tracing::debug!("Album tracks page loaded, total so far: {}", tracks.len());
+
+            if let Some(cursor) = next_cursor {
+                next_url = Some(format!("{OPENAPI_BASE}/albums/{album_id}/relationships/items?locale=en-US&include=items.albums,items.artists&page[cursor]={}", cursor));
+            } else {
+                next_url = None;
+            }
+        }
+
+        let total = tracks.len() as u32;
+        tracing::debug!("Album tracks fully loaded: {} total", total);
+        Ok(Page { items: tracks, total })
     }
 
     // ── Radio ─────────────────────────────────────────────────────────────────
