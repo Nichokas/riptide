@@ -313,6 +313,7 @@ mod tests {
                 audio_quality: None,
                 media_metadata: None,
                 added_at: None,
+                album_type: None,
             },
             audio_quality: None,
             media_metadata: None,

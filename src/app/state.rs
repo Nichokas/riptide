@@ -732,10 +732,10 @@ mod tests {
     fn stateful_list_should_load_more_triggers_near_end() {
         let mut list: StatefulList<u32> = StatefulList::default();
         list.append((0..20u32).collect(), 100);
-        // triggers when selected >= items.len() - 2 → at selected == 18
-        list.selected = 18;
+        // triggers when selected >= items.len() - 10 → at selected == 10
+        list.selected = 10;
         assert!(list.should_load_more());
-        list.selected = 17;
+        list.selected = 9;
         assert!(!list.should_load_more());
     }
 
