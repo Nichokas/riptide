@@ -16,24 +16,31 @@ impl App {
                 }
             }
 
-            ApiResponse::FavAlbums(items, total) => {
+            ApiResponse::FavAlbumsPage { albums, total, next_url } => {
                 let existing_ids: std::collections::HashSet<u64> =
                     self.fav_albums.items.iter().map(|a| a.id).collect();
-                let unique: Vec<Album> = items.into_iter()
+                let unique: Vec<Album> = albums.into_iter()
                     .filter(|a| !existing_ids.contains(&a.id))
                     .collect();
                 self.fav_albums.append(unique, total);
+                let has_next = next_url.is_some();
+                self.fav_albums.pagination_cursor = next_url;
+                if !has_next {
+                    self.fav_albums.exhausted = true;
+                }
                 if self.fav_albums_sort.is_none() {
                     self.fav_albums.items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
                 }
                 self.rebuild_favorite_album_ids();
-                self.load_fav_albums();
+                if !self.fav_albums.exhausted {
+                    self.load_fav_albums();
+                }
             }
 
             ApiResponse::AlbumFavorited { album_id } => {
                 self.favorite_album_ids.insert(album_id);
                 self.fav_albums.items.clear();
-                self.fav_albums.next_offset = 0;
+                self.fav_albums.pagination_cursor = None;
                 self.fav_albums.exhausted = false;
                 self.load_fav_albums();
             }
@@ -161,13 +168,25 @@ impl App {
             }
 
             ApiResponse::AlbumLoaded { album } => {
+                let album_id = album.id;
+                let cover = album.cover.clone();
+                tracing::debug!("AlbumLoaded album_id={}, cover={:?}", album_id, cover);
+
                 if let Some(View::AlbumDetail(detail)) = self.view_stack.last_mut() {
                     if detail.album.id == album.id {
-                        let album_id = album.id;
-                        let cover = album.cover.clone();
-                        detail.album = album;
-                        if let Some(cover_url) = cover {
+                        detail.album = album.clone();
+                        if let Some(cover_url) = cover.clone() {
                             detail.art_loading = true;
+                            let _ = self.api_tx.send(ApiRequest::FetchAlbumArt { album_id, cover_id: cover_url });
+                        }
+                    }
+                }
+
+                // Also handle when album is loaded for now_playing track (from fetch_now_playing_art)
+                if let Some(track) = &self.now_playing.track {
+                    if track.album.id == album_id {
+                        if let Some(cover_url) = cover {
+                            self.now_playing.art_loading = true;
                             let _ = self.api_tx.send(ApiRequest::FetchAlbumArt { album_id, cover_id: cover_url });
                         }
                     }
@@ -185,9 +204,12 @@ impl App {
             }
 
             ApiResponse::AlbumArt { album_id, image_data } => {
+                tracing::debug!("AlbumArt response for album_id={}, bytes={}", album_id, image_data.len());
                 let is_now_playing = self.now_playing.track.as_ref()
                     .map(|t| t.album.id) == Some(album_id);
+                tracing::debug!("is_now_playing={}", is_now_playing);
                 if is_now_playing {
+                    tracing::debug!("Setting now_playing.art_bytes");
                     self.now_playing.art_bytes = Some(image_data.clone());
                     self.now_playing.art_loading = false;
                 }
@@ -397,6 +419,7 @@ impl App {
 
                     if track_changed {
                         // Clear old art and lyrics so we don't show the previous track's content
+                        tracing::debug!("Clearing old art and lyrics for new track");
                         self.now_playing.art_bytes = None;
                         self.now_playing.art_loading = true;
                         self.now_playing.lyrics_synced.clear();
@@ -404,9 +427,9 @@ impl App {
                         self.now_playing.lyrics_loading = true;
                     }
 
-                    // Fetch track details and lyrics now that playback is confirmed
+                    // Fetch track details, art, and lyrics now that playback is confirmed
                     let _ = self.api_tx.send(ApiRequest::GetTrackDetails { track_id });
-                    let _ = self.api_tx.send(ApiRequest::FetchLyrics { track_id });
+                    self.fetch_now_playing_metadata();
                     self.push_mpris_state();
 
                     let _ = self.player_tx.send(PlayerCmd::Play(url));
@@ -427,15 +450,19 @@ impl App {
             }
 
             ApiResponse::TrackDetails { track_id, track, cover_url } => {
+                tracing::debug!("TrackDetails for track_id={}, cover_url={:?}", track_id, cover_url);
                 if self.now_playing.track.as_ref().map(|t| t.id) == Some(track_id) {
                     self.now_playing.track = Some(track);
+                    // Only fetch track cover if it's a valid image (not video)
                     if let Some(url) = cover_url {
-                        self.now_playing.art_loading = true;
-                        self.now_playing.art_bytes = None;
-                        let _ = self.api_tx.send(ApiRequest::FetchTrackArt { track_id, cover_url: url });
-                    } else {
-                        // No cover URL from track details, fetch using standard metadata
-                        self.fetch_now_playing_metadata();
+                        if url.ends_with(".jpg") || url.ends_with(".png") || url.ends_with(".jpeg") {
+                            tracing::debug!("TrackDetails has valid image cover_url, fetching");
+                            self.now_playing.art_loading = true;
+                            self.now_playing.art_bytes = None;
+                            let _ = self.api_tx.send(ApiRequest::FetchTrackArt { track_id, cover_url: url });
+                        } else {
+                            tracing::debug!("TrackDetails has non-image cover_url ({}), skipping", url);
+                        }
                     }
                 }
             }

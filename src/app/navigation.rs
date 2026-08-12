@@ -97,7 +97,6 @@ impl App {
 
     pub fn open_album(&mut self, album: Album) {
         let album_id = album.id;
-        let cover = album.cover.clone();
         self.view_stack.push(View::AlbumDetail(AlbumDetail {
             album,
             tracks: StatefulList::default(),
@@ -106,9 +105,7 @@ impl App {
         }));
         let _ = self.api_tx.send(ApiRequest::LoadAlbum       { album_id });
         let _ = self.api_tx.send(ApiRequest::LoadAlbumTracks { album_id });
-        if let Some(cover_id) = cover {
-            let _ = self.api_tx.send(ApiRequest::FetchAlbumArt { album_id, cover_id });
-        }
+        // Don't fetch cover here - let AlbumLoaded handler fetch with the correct cover ID
     }
 
     pub fn open_selected_album(&mut self) {

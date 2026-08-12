@@ -628,7 +628,14 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
                     KeyCode::Right | KeyCode::Char('l') => Action::FocusQueue,
                     KeyCode::Enter => {
                         let idx = detail.tracks.selected;
-                        let tracks = detail.tracks.items.clone();
+                        let mut tracks = detail.tracks.items.clone();
+                        // Populate album cover from album detail
+                        if let Some(cover) = &detail.album.cover {
+                            tracing::debug!("Album cover from detail ({}): {}", cover.starts_with("http"), cover);
+                            for track in &mut tracks {
+                                track.album.cover = Some(cover.clone());
+                            }
+                        }
                         Action::PlayTracks(tracks, idx)
                     }
                     KeyCode::Char('a') => {

@@ -14,7 +14,8 @@ impl App {
     pub fn load_fav_albums(&mut self) {
         if self.fav_albums.loading || self.fav_albums.exhausted { return; }
         self.fav_albums.loading = true;
-        let _ = self.api_tx.send(ApiRequest::LoadFavAlbums { offset: self.fav_albums.next_offset });
+        let next_url = self.fav_albums.pagination_cursor.clone();
+        let _ = self.api_tx.send(ApiRequest::LoadFavAlbums { next_url });
     }
 
     pub fn load_playlists(&mut self) {
@@ -106,9 +107,15 @@ impl App {
             None => return,
         };
         self.now_playing.art_bytes = None;
+        tracing::debug!("fetch_now_playing_art: album_id={}, cover={:?}", album_id, cover_id);
         if let Some(cover_id) = cover_id {
             self.now_playing.art_loading = true;
             let _ = self.api_tx.send(ApiRequest::FetchAlbumArt { album_id, cover_id });
+        } else if album_id > 0 {
+            // Album cover not available; fetch album to get cover art
+            tracing::debug!("No cover available, fetching album to get cover");
+            self.now_playing.art_loading = true;
+            let _ = self.api_tx.send(ApiRequest::LoadAlbum { album_id });
         } else {
             self.now_playing.art_loading = false;
         }

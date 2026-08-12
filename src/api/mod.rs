@@ -18,7 +18,7 @@ pub enum ApiRequest {
     LoadArtists { offset: u32 },
     LoadPlaylists { offset: u32 },
     LoadFavorites { offset: u32 },
-    LoadFavAlbums { offset: u32 },
+    LoadFavAlbums { next_url: Option<String> },
     LoadArtistTopTracks { artist_id: u64 },
     LoadArtistAlbums { artist_id: u64 },
     LoadArtistEPs { artist_id: u64 },
@@ -88,7 +88,7 @@ pub enum ApiResponse {
     ArtistFollowed,
     FavoriteRemoved { track_id: u64 },
     ArtistUnfollowed { artist_id: u64 },
-    FavAlbums(Vec<Album>, u32),
+    FavAlbumsPage { albums: Vec<Album>, total: u32, next_url: Option<String> },
     AlbumFavorited { album_id: u64 },
     AlbumUnfavorited { album_id: u64 },
     PlaylistSaved,
@@ -181,14 +181,9 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             }
         }
 
-        ApiRequest::LoadFavAlbums { offset } => match client.get_favorite_albums(offset, 50).await {
-            Ok(page) => {
-                let albums = page.items.into_iter().map(|e| {
-                    let mut item = e.item;
-                    item.added_at = e.created;
-                    item
-                }).collect();
-                ApiResponse::FavAlbums(albums, page.total)
+        ApiRequest::LoadFavAlbums { next_url } => match client.get_favorite_albums(next_url).await {
+            Ok((albums, total, next_cursor)) => {
+                ApiResponse::FavAlbumsPage { albums, total, next_url: next_cursor }
             }
             Err(e) => ApiResponse::Error(e.to_string()),
         },

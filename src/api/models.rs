@@ -98,12 +98,6 @@ impl Album {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct FavoriteAlbumEntry {
-    pub created: Option<String>,
-    pub item: Album,
-}
-
 // ── Tracks ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Clone)]
