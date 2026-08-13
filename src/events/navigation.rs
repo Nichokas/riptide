@@ -32,7 +32,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
         match view {
             View::ArtistDetail(detail) => {
                 match key.code {
-                    KeyCode::Up => {
+                    KeyCode::Up | KeyCode::Char('k') => {
                         match detail.focus {
                             ArtistDetailFocus::Tracks => detail.tracks.prev(),
                             ArtistDetailFocus::Albums => detail.albums.prev(),
@@ -44,7 +44,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
                         }
                         return;
                     }
-                    KeyCode::Down => {
+                    KeyCode::Down | KeyCode::Char('j') => {
                         match detail.focus {
                             ArtistDetailFocus::Tracks => detail.tracks.next(),
                             ArtistDetailFocus::Albums => detail.albums.next(),
@@ -196,7 +196,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             }
             View::PlaylistDetail(detail) => {
                 match key.code {
-                    KeyCode::Up => {
+                    KeyCode::Up | KeyCode::Char('k') => {
                         match detail.focus {
                             PlaylistDetailFocus::Tracks => detail.tracks.prev(),
                             PlaylistDetailFocus::Description => {
@@ -205,7 +205,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
                         }
                         return;
                     }
-                    KeyCode::Down => {
+                    KeyCode::Down | KeyCode::Char('j') => {
                         match detail.focus {
                             PlaylistDetailFocus::Tracks => detail.tracks.next(),
                             PlaylistDetailFocus::Description => {
@@ -301,8 +301,8 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             }
             View::AlbumDetail(detail) => {
                 match key.code {
-                    KeyCode::Up => { detail.tracks.prev(); return; }
-                    KeyCode::Down => { detail.tracks.next(); return; }
+                    KeyCode::Up | KeyCode::Char('k') => { detail.tracks.prev(); return; }
+                    KeyCode::Down | KeyCode::Char('j') => { detail.tracks.next(); return; }
                     KeyCode::PageUp => { detail.tracks.page_up(); return; }
                     KeyCode::PageDown => { detail.tracks.page_down(); return; }
                     KeyCode::Right | KeyCode::Char('l') => Action::FocusQueue,
@@ -369,7 +369,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
 
     // Top-level tab navigation (no active detail view)
     match key.code {
-        KeyCode::Up => match app.current_tab {
+        KeyCode::Up | KeyCode::Char('k') => match app.current_tab {
             Tab::Home => {
                 use crate::app::HomeSectionFocus;
                 match app.home_section_focus {
@@ -384,7 +384,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             Tab::Favorites => app.favorites.prev(),
             Tab::Search => app.search.pane_prev(),
         },
-        KeyCode::Down => match app.current_tab {
+        KeyCode::Down | KeyCode::Char('j') => match app.current_tab {
             Tab::Home => {
                 use crate::app::HomeSectionFocus;
                 match app.home_section_focus {

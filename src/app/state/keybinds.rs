@@ -60,8 +60,8 @@ impl KeybindGroup {
         KeybindGroup {
             title: "Navigation",
             binds: &[
-                Keybind { key: "↑", action: "Up" },
-                Keybind { key: "↓", action: "Down" },
+                Keybind { key: "↑/k", action: "Up" },
+                Keybind { key: "↓/j", action: "Down" },
                 Keybind { key: "PgUp/PgDn", action: "Move one page" },
                 Keybind { key: "Enter", action: "Select/Open" },
                 Keybind { key: "a", action: "Add to queue" },
@@ -80,8 +80,8 @@ impl KeybindGroup {
         KeybindGroup {
             title: "Queue",
             binds: &[
-                Keybind { key: "↑", action: "Up" },
-                Keybind { key: "↓", action: "Down" },
+                Keybind { key: "↑/k", action: "Up" },
+                Keybind { key: "↓/j", action: "Down" },
                 Keybind { key: "d", action: "Remove track" },
                 Keybind { key: "c", action: "Copy share link (song)" },
                 Keybind { key: "C", action: "Copy share link (album)" },
@@ -96,8 +96,8 @@ impl KeybindGroup {
         KeybindGroup {
             title: "Search",
             binds: &[
-                Keybind { key: "↑", action: "Up" },
-                Keybind { key: "↓", action: "Down" },
+                Keybind { key: "↑/k", action: "Up" },
+                Keybind { key: "↓/j", action: "Down" },
                 Keybind { key: "Tab", action: "Next pane" },
                 Keybind { key: "Shift+Tab", action: "Prev pane" },
                 Keybind { key: "Enter", action: "Select/Open" },

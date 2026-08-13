@@ -99,12 +99,12 @@ pub(super) fn handle_sort_palette_input(app: &mut App, key: KeyEvent) {
         KeyCode::Esc => {
             app.sort_palette.active = false;
         }
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Char('k') => {
             if app.sort_palette.selected > 0 {
                 app.sort_palette.selected -= 1;
             }
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
             if app.sort_palette.selected + 1 < count {
                 app.sort_palette.selected += 1;
             }
@@ -132,10 +132,10 @@ pub(super) fn handle_help_input(app: &mut App, key: KeyEvent) {
             app.help_active = false;
             app.help_scroll = 0;
         }
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Char('k') => {
             app.help_scroll = app.help_scroll.saturating_sub(1);
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
             app.help_scroll = (app.help_scroll + 1).min(max_scroll);
         }
         KeyCode::PageUp => {
@@ -153,12 +153,12 @@ pub(super) fn handle_artist_selection_input(app: &mut App, key: KeyEvent) {
         KeyCode::Esc => {
             app.artist_selection.active = false;
         }
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Char('k') => {
             if app.artist_selection.selected > 0 {
                 app.artist_selection.selected -= 1;
             }
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
             let len = app.artist_selection.artist_names.len();
             if app.artist_selection.selected + 1 < len {
                 app.artist_selection.selected += 1;

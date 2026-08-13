@@ -16,15 +16,21 @@ pub(super) fn handle_queue_input(app: &mut App, key: KeyEvent) {
         KeyCode::Up if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.move_queue_track_up();
         }
+        KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.move_queue_track_up();
+        }
         KeyCode::Down if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.move_queue_track_down();
         }
-        KeyCode::Up => {
+        KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.move_queue_track_down();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
             if app.queue_cursor > 0 {
                 app.queue_cursor -= 1;
             }
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
             let len = app.now_playing.queue.len();
             if len > 0 && app.queue_cursor + 1 < len {
                 app.queue_cursor += 1;
