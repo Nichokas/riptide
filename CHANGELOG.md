@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-08-13
+
+The Tidal API migration is complete: every endpoint that can use the v2 API now
+does. Stream URLs remain on v1 permanently — the v2 equivalent serves
+DRM-encrypted media that mpv cannot play. See the note on `get_stream_url`.
+
+### Added
+- Sort order, volume, shuffle state and queue visibility now persist across restarts, in a new `prefs` block in `config.json`
+  (the Tracks sort is stored as `tracks_sort`)
+- The active sort is shown in each list header, and the sort palette opens on the sort already applied
+- `t` shows/hides the queue panel; hiding it gives the content list the full width
+- Favorite indicator on search artist results
+
+### Changed
+- Tabs moved from the left sidebar to a strip across the top, with the active tab boxed
+- Album art moved into the now-playing bar above the track info, and is substantially larger
+- Lyrics now sit directly above the waveform
+- The search box only opens automatically when there are no results, so results survive leaving and returning to the tab; `Esc` closes the box rather than switching tab, and `Tab` keeps working while it is open
+- Global keybinds (transport, volume, tabs, help) now work while the queue is focused
+- Track lists number from 1 rather than 0
+- The "Favorites" tab is now called "Tracks", and its command palette entry is now `tracks` (previously `favorites`)
+- Album, track and artist favorites, lyrics, and search all moved to the v2 API
+
+### Fixed
+- Cursor lag and waveform stutter in the artist, album and playlist views, caused by rebuilding the terminal image protocol every frame
+- Playlist detail showed 0 tracks: the count read a v1 field name the v2 API never sends, and the pagination response then overwrote it
+- Sorting playlists by Last Added did nothing, because `addedAt` was discarded during parsing
+- A sort restored from preferences is now applied when data arrives, not only when picked
+
+### Internal
+- `client.rs` (3,604 lines) split into ten domain modules, each owning its own requests and parsers
+- `ui.rs`, `events.rs`, `app/state.rs` and `api/mod.rs` similarly split; the largest file in the crate dropped from 3,604 lines to 702
+
 ## [0.13.0] - 2026-08-11
 
 ### Added

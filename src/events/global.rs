@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2025 Ryan Cohan
+
+//! Bindings that apply in every context: transport, volume, tabs, help.
+
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+use crate::app::{App, View};
+use crate::player::PlayerCmd;
+use super::*;
+
+pub(super) fn kitty_delete_album_art() {
+    if std::env::var("KITTY_WINDOW_ID").is_ok() {
+        use std::io::Write;
+        print!("\x1b_Ga=d,d=i,i=2\x1b\\");
+        let _ = std::io::stdout().flush();
+    }
+}
+
+pub(super) fn kitty_delete_artist_art() {
+    if std::env::var("KITTY_WINDOW_ID").is_ok() {
+        use std::io::Write;
+        print!("\x1b_Ga=d,d=i,i=3\x1b\\");
+        let _ = std::io::stdout().flush();
+    }
+}
+
+pub(super) fn leaving_album(app: &App) -> bool {
+    matches!(app.view_stack.last(), Some(View::AlbumDetail(_)))
+}
+
+pub(super) fn leaving_artist(app: &App) -> bool {
+    matches!(app.view_stack.last(), Some(View::ArtistDetail(_)))
+}
+
+/// Bindings that apply everywhere: transport, volume, tabs, help, quit.
+///
+/// Returns whether the key was consumed. Kept separate from `handle_key` so that
+/// panes which capture input — the queue especially — can match their own keys
+/// first and then defer here, instead of re-implementing each binding. That
+/// duplication had already drifted: the queue re-declared play/pause, shuffle
+/// and quit while silently dropping help, the command palette, tab switching,
+/// next/previous track and volume.
+pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Char('Q') => {
+            app.should_quit = true;
+        }
+        KeyCode::Char('?') => {
+            app.help_active = true;
+            app.help_scroll = 0;
+        }
+        KeyCode::Char('/') => {
+            app.command.active = true;
+            app.command.input.clear();
+            app.command.selected = 0;
+        }
+        KeyCode::Tab => {
+            if leaving_album(app) { kitty_delete_album_art(); }
+            if leaving_artist(app) { kitty_delete_artist_art(); }
+            if key.modifiers.contains(KeyModifiers::SHIFT) {
+                app.prev_tab();
+            } else {
+                app.next_tab();
+            }
+        }
+        KeyCode::BackTab => {
+            if leaving_album(app) { kitty_delete_album_art(); }
+            if leaving_artist(app) { kitty_delete_artist_art(); }
+            app.prev_tab();
+        }
+        KeyCode::Char(' ') => app.toggle_pause(),
+        KeyCode::Char('t') => app.toggle_queue_visible(),
+        KeyCode::Char('n') => app.next_track(),
+        KeyCode::Char('p') => app.prev_track(),
+        KeyCode::Char('z') => app.toggle_shuffle(),
+        KeyCode::Esc => {
+            if leaving_album(app) { kitty_delete_album_art(); }
+            if leaving_artist(app) { kitty_delete_artist_art(); }
+            app.go_back();
+        }
+        KeyCode::Char('+') | KeyCode::Char('=') => { let _ = app.player_tx.send(PlayerCmd::ChangeVolume(5)); },
+        KeyCode::Char('-') => { let _ = app.player_tx.send(PlayerCmd::ChangeVolume(-5)); },
+        KeyCode::Char('g') => {
+            if let Some(track) = get_selected_track(app) {
+                app.go_to_artist_from_track(&track);
+            } else {
+                app.set_status("No track selected".to_string(), crate::app::StatusLevel::Error);
+            }
+        }
+        KeyCode::Char('U') | KeyCode::Char('u') => {
+            if app.update.checking {
+                app.set_status("Checking for updates…".to_string(), crate::app::StatusLevel::Info);
+            } else if app.update.available.is_some() {
+                app.open_update_dialog();
+            } else if let Some(err) = &app.update.check_error {
+                app.set_status(format!("Update check failed: {err}"), crate::app::StatusLevel::Error);
+            } else if app.update.check_done {
+                app.set_status("Riptide is up to date".to_string(), crate::app::StatusLevel::Info);
+            } else {
+                app.set_status(
+                    "Updates are handled by your package manager".to_string(),
+                    crate::app::StatusLevel::Info,
+                );
+            }
+        }
+        _ => return false,
+    }
+    true
+}

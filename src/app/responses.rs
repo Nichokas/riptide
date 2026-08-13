@@ -12,9 +12,7 @@ impl App {
             ApiResponse::Artists(items, total) => {
                 self.artists.append(items, total);
                 self.artists.exhausted = true;
-                if self.artists_sort.is_none() {
-                    self.artists.items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-                }
+                self.sort_artists();
                 self.rebuild_favorite_artist_ids();
             }
 
@@ -30,9 +28,7 @@ impl App {
                 if !has_next {
                     self.fav_albums.exhausted = true;
                 }
-                if self.fav_albums_sort.is_none() {
-                    self.fav_albums.items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-                }
+                self.sort_fav_albums();
                 self.rebuild_favorite_album_ids();
                 if !self.fav_albums.exhausted {
                     self.load_fav_albums();
@@ -66,16 +62,12 @@ impl App {
 
             ApiResponse::Playlists(items, total) => {
                 self.playlists.append(items, total);
-                if self.playlists_sort.is_none() {
-                    self.playlists.items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-                }
+                self.sort_playlists();
             }
 
             ApiResponse::Favorites(items, total) => {
                 self.favorites.append(items, total);
-                if self.favorites_sort.is_none() {
-                    self.favorites.items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-                }
+                self.sort_favorites();
                 if self.favorites.should_load_more() {
                     self.load_favorites();
                 }
@@ -258,8 +250,13 @@ impl App {
                             tracing::debug!("Setting description: {}", desc);
                             detail.playlist.description = Some(desc);
                         }
-                        // Update track count from the response
-                        detail.playlist.number_of_tracks = Some(total);
+                        // Only the initial /playlists/{uuid} request carries the
+                        // playlist's item count. Later pages come from the
+                        // relationship endpoint, which has no attributes block
+                        // and reports 0 — don't let that clobber a real count.
+                        if total > 0 {
+                            detail.playlist.number_of_tracks = Some(total);
+                        }
                         if let Some(cov_url) = cover {
                             tracing::debug!("Setting cover: {}", cov_url);
                             detail.playlist.cover = Some(cov_url.clone());

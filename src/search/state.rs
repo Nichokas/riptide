@@ -56,7 +56,6 @@ pub enum SearchPane {
 }
 
 pub struct SearchState {
-    pub active: bool,
     pub query: String,
     pub modal_open: bool,
     pub tracks: Vec<Track>,
@@ -81,7 +80,6 @@ pub struct SearchState {
 impl Default for SearchState {
     fn default() -> Self {
         Self {
-            active: false,
             query: String::new(),
             modal_open: false,
             tracks: Vec::new(),
@@ -106,6 +104,11 @@ impl Default for SearchState {
 }
 
 impl SearchState {
+    /// True when any pane has something to browse.
+    pub fn has_results(&self) -> bool {
+        !self.tracks.is_empty() || !self.artists.is_empty() || !self.playlists.is_empty()
+    }
+
     pub fn track_scroll_offset(&self, height: usize) -> usize {
         self.track_viewport.offset(self.track_sel, self.tracks.len(), height)
     }

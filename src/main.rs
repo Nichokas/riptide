@@ -151,7 +151,13 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Build app state and run
-    let mut app = App::new(api_req_tx, player_cmd_tx, mpris_state_tx, lastfm_cmd_tx);
+    let mut app = App::new(
+        api_req_tx,
+        player_cmd_tx,
+        mpris_state_tx,
+        lastfm_cmd_tx,
+        config.prefs.clone(),
+    );
 
     // Reap any staged files left by a previous cancelled update.
     update::cleanup_stale_artifacts();
@@ -183,29 +189,28 @@ fn main() -> Result<()> {
                 Err(_) => Err("update check panicked".to_string()),
             };
             let _ = check_tx.send(to_send);
-                // Loop to handle multiple install attempts (e.g. retry after failure).
-                while let Some(()) = go_rx.blocking_recv() {
-                    // Catch panics so the TUI never hangs in Working. Reset the
-                    // cancel flag per attempt so a retried update can proceed.
-                    cancel.store(false, std::sync::atomic::Ordering::Relaxed);
-                    let outcome = std::panic::catch_unwind(|| update::self_update_with_cancel(&cancel));
-                    let result = match outcome {
-                        Ok(Ok(update::UpdateOutcome::Updated(tag))) => Ok(tag),
-                        Ok(Ok(update::UpdateOutcome::AlreadyCurrent)) => {
-                            Err("Already up to date".to_string())
-                        }
-                        Ok(Err(e)) => Err(format!("{e:#}")),
-                        Err(_) => Err("update panicked".to_string()),
-                    };
-                    // If TUI closed, send will fail — exit loop.
-                    if result_tx.send(result).is_err() {
-                        break;
+            // Loop to handle multiple install attempts (e.g. retry after failure).
+            while let Some(()) = go_rx.blocking_recv() {
+                // Catch panics so the TUI never hangs in Working. Reset the
+                // cancel flag per attempt so a retried update can proceed.
+                cancel.store(false, std::sync::atomic::Ordering::Relaxed);
+                let outcome = std::panic::catch_unwind(|| update::self_update_with_cancel(&cancel));
+                let result = match outcome {
+                    Ok(Ok(update::UpdateOutcome::Updated(tag))) => Ok(tag),
+                    Ok(Ok(update::UpdateOutcome::AlreadyCurrent)) => {
+                        Err("Already up to date".to_string())
                     }
+                    Ok(Err(e)) => Err(format!("{e:#}")),
+                    Err(_) => Err("update panicked".to_string()),
+                };
+                // If TUI closed, send will fail — exit loop.
+                if result_tx.send(result).is_err() {
+                    break;
                 }
-                tracing::debug!("update actor: TUI closed or channel dropped");
-            });
+            }
+            tracing::debug!("update actor: TUI closed or channel dropped");
+        });
     }
-
     let result = events::run_app(
         &mut terminal,
         &mut app,
@@ -219,6 +224,15 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
+
+    // Persist UI choices on the way out — one write, rather than rewriting a
+    // file containing OAuth tokens on every volume keypress. A crash loses the
+    // session's preference changes, which is an acceptable trade for not
+    // touching the credential file continuously.
+    config.prefs = app.preferences();
+    if let Err(e) = api::auth::save_config(&config) {
+        tracing::error!("Failed to save preferences: {e}");
+    }
 
     // Dropping app closes the command channels, which causes both workers to exit
     // their loops. Joining ensures PlayerWorker reaches child.kill() before we return.

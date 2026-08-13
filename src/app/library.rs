@@ -3,7 +3,7 @@
 
 use crate::api::ApiRequest;
 use crate::api::models::{Album, Artist, Playlist, Track};
-use super::{App, SortField, StatusLevel, Tab};
+use super::{App, SortField, SortPalette, StatusLevel, Tab};
 
 impl App {
     // ── Home ──────────────────────────────────────────────────────────────────
@@ -135,58 +135,94 @@ impl App {
 
     // ── Sort ──────────────────────────────────────────────────────────────────
 
+    /// The sort in effect for the active tab, or `None` on tabs that don't sort.
+    ///
+    /// An unset field means alphabetical — the same fallback the `sort_*`
+    /// helpers use — so this reports what the list is actually ordered by rather
+    /// than whether the user has explicitly chosen anything.
+    pub fn active_sort(&self) -> Option<SortField> {
+        let field = match self.current_tab {
+            Tab::Favorites => self.tracks_sort,
+            Tab::Artists   => self.artists_sort,
+            Tab::Albums    => self.fav_albums_sort,
+            Tab::Playlists => self.playlists_sort,
+            Tab::Home | Tab::Search => return None,
+        };
+        Some(field.unwrap_or(SortField::Alphabetical))
+    }
+
     pub fn open_sort_palette(&mut self) {
         self.sort_palette.active = true;
-        self.sort_palette.selected = 0;
+        // Land on the sort that's already applied, so the palette reflects the
+        // current state and Enter re-confirms it instead of silently switching
+        // to whichever option happens to be listed first.
+        let current = self.active_sort();
+        self.sort_palette.selected = SortPalette::get_options(self.current_tab)
+            .iter()
+            .position(|(_, field)| Some(*field) == current)
+            .unwrap_or(0);
     }
 
     pub fn apply_sort(&mut self, field: SortField) {
         self.sort_palette.active = false;
         match self.current_tab {
-            Tab::Home => {},
-            Tab::Favorites => {
-                self.favorites_sort = Some(field);
-                match field {
-                    SortField::Alphabetical => self.favorites.items
-                        .sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
-                    SortField::LastAdded => self.favorites.items
-                        .sort_by(|a, b| b.added_at.cmp(&a.added_at)),
-                    SortField::ByArtist => self.favorites.items
-                        .sort_by(|a, b| a.artist_name().to_lowercase().cmp(&b.artist_name().to_lowercase())),
-                }
-            }
-            Tab::Artists => {
-                self.artists_sort = Some(field);
-                match field {
-                    SortField::Alphabetical => self.artists.items
-                        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
-                    SortField::LastAdded => self.artists.items
-                        .sort_by(|a, b| b.added_at.cmp(&a.added_at)),
-                    _ => {},
-                }
-            }
-            Tab::Albums => {
-                self.fav_albums_sort = Some(field);
-                match field {
-                    SortField::Alphabetical => self.fav_albums.items
-                        .sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
-                    SortField::LastAdded => self.fav_albums.items
-                        .sort_by(|a, b| b.added_at.cmp(&a.added_at)),
-                    SortField::ByArtist => self.fav_albums.items
-                        .sort_by(|a, b| a.artist_name().to_lowercase().cmp(&b.artist_name().to_lowercase())),
-                }
-            }
-            Tab::Playlists => {
-                self.playlists_sort = Some(field);
-                match field {
-                    SortField::Alphabetical => self.playlists.items
-                        .sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
-                    SortField::LastAdded => self.playlists.items
-                        .sort_by(|a, b| b.added_at.cmp(&a.added_at)),
-                    _ => {}
-                }
-            }
-            Tab::Search => {}
+            Tab::Home | Tab::Search => {}
+            Tab::Favorites => { self.tracks_sort = Some(field); self.sort_favorites(); }
+            Tab::Artists   => { self.artists_sort = Some(field);   self.sort_artists(); }
+            Tab::Albums    => { self.fav_albums_sort = Some(field); self.sort_fav_albums(); }
+            Tab::Playlists => { self.playlists_sort = Some(field); self.sort_playlists(); }
+        }
+    }
+
+    // ── Sorting ──────────────────────────────────────────────────────────────
+    //
+    // Each list's ordering lives in one place so it can be applied both when the
+    // user picks from the sort palette and when fresh data arrives. The response
+    // handlers used to inline "sort alphabetically if no sort is set", which
+    // meant a sort restored from preferences suppressed the default without ever
+    // applying itself — leaving the list in raw API order.
+    //
+    // `None` means "never chosen", which sorts alphabetically.
+
+    pub(crate) fn sort_favorites(&mut self) {
+        match self.tracks_sort.unwrap_or(SortField::Alphabetical) {
+            SortField::Alphabetical => self.favorites.items
+                .sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
+            SortField::LastAdded => self.favorites.items
+                .sort_by(|a, b| b.added_at.cmp(&a.added_at)),
+            SortField::ByArtist => self.favorites.items
+                .sort_by(|a, b| a.artist_name().to_lowercase().cmp(&b.artist_name().to_lowercase())),
+        }
+    }
+
+    pub(crate) fn sort_artists(&mut self) {
+        match self.artists_sort.unwrap_or(SortField::Alphabetical) {
+            SortField::LastAdded => self.artists.items
+                .sort_by(|a, b| b.added_at.cmp(&a.added_at)),
+            // Artists have no album/artist axis to sort on, so anything else
+            // falls back to name order.
+            _ => self.artists.items
+                .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+        }
+    }
+
+    pub(crate) fn sort_fav_albums(&mut self) {
+        match self.fav_albums_sort.unwrap_or(SortField::Alphabetical) {
+            SortField::Alphabetical => self.fav_albums.items
+                .sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
+            SortField::LastAdded => self.fav_albums.items
+                .sort_by(|a, b| b.added_at.cmp(&a.added_at)),
+            SortField::ByArtist => self.fav_albums.items
+                .sort_by(|a, b| a.artist_name().to_lowercase().cmp(&b.artist_name().to_lowercase())),
+        }
+    }
+
+    pub(crate) fn sort_playlists(&mut self) {
+        match self.playlists_sort.unwrap_or(SortField::Alphabetical) {
+            SortField::LastAdded => self.playlists.items
+                .sort_by(|a, b| b.added_at.cmp(&a.added_at)),
+            _ => self.playlists.items
+                .sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
         }
     }
 }
