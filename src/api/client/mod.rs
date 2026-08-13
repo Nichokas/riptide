@@ -9,6 +9,9 @@ use tokio::sync::RwLock;
 
 use super::models::*;
 
+mod parse;
+use parse::*;
+
 const BASE: &str = "https://api.tidal.com/v1";
 const OPENAPI_BASE: &str = "https://openapi.tidal.com/v2";
 
@@ -58,131 +61,6 @@ struct OpenApiLinksMeta {
 }
 const USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 12; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/91.0.4472.114 Safari/537.36";
 
-fn parse_iso_duration(s: &str) -> u32 {
-    // Parse ISO 8601 duration format (e.g., "PT5M10S" = 5 min 10 sec = 310 sec)
-    let s = s.trim_start_matches('P').trim_start_matches('T');
-    let mut seconds = 0u32;
-    let mut current_num = String::new();
-
-    for ch in s.chars() {
-        match ch {
-            '0'..='9' => current_num.push(ch),
-            'H' => {
-                if let Ok(hours) = current_num.parse::<u32>() {
-                    seconds += hours * 3600;
-                }
-                current_num.clear();
-            }
-            'M' => {
-                if let Ok(minutes) = current_num.parse::<u32>() {
-                    seconds += minutes * 60;
-                }
-                current_num.clear();
-            }
-            'S' => {
-                if let Ok(secs) = current_num.parse::<u32>() {
-                    seconds += secs;
-                }
-                current_num.clear();
-            }
-            _ => {}
-        }
-    }
-    seconds
-}
-
-fn extract_artist_from_track(
-    track_obj: &serde_json::Value,
-    artist_map: &HashMap<String, serde_json::Value>,
-) -> String {
-    track_obj
-        .get("relationships")
-        .and_then(|v| v.get("artists"))
-        .and_then(|v| v.get("data"))
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|v| v.get("id"))
-        .and_then(|v| v.as_str())
-        .and_then(|artist_id| artist_map.get(artist_id))
-        .and_then(|artist_obj| artist_obj.get("attributes"))
-        .and_then(|v| v.get("name"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown")
-        .to_string()
-}
-
-fn extract_artist_from_album(
-    album_obj: &serde_json::Value,
-    artist_map: &HashMap<String, serde_json::Value>,
-) -> Option<String> {
-    album_obj
-        .get("relationships")
-        .and_then(|v| v.get("artists"))
-        .and_then(|v| v.get("data"))
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|v| v.get("id"))
-        .and_then(|v| v.as_str())
-        .and_then(|artist_id| artist_map.get(artist_id))
-        .and_then(|artist_obj| artist_obj.get("attributes"))
-        .and_then(|v| v.get("name"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-}
-
-fn extract_cover_from_album(album_obj: &serde_json::Value) -> Option<String> {
-    album_obj
-        .get("relationships")
-        .and_then(|v| v.get("coverArt"))
-        .and_then(|v| v.get("data"))
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|v| v.get("id"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-}
-
-fn extract_media_metadata(
-    attrs: &serde_json::Map<String, serde_json::Value>,
-) -> Option<MediaMetadata> {
-    attrs
-        .get("mediaTags")
-        .and_then(|v| v.as_array())
-        .map(|tags| {
-            let tag_strs: Vec<String> = tags
-                .iter()
-                .filter_map(|t| t.as_str().map(|s| s.to_string()))
-                .collect();
-            MediaMetadata { tags: tag_strs }
-        })
-}
-
-fn extract_album_id_from_track(track_obj: &serde_json::Value) -> u64 {
-    track_obj
-        .get("relationships")
-        .and_then(|v| v.get("albums"))
-        .and_then(|v| v.get("data"))
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|v| v.get("id"))
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(0)
-}
-
-fn build_artist_map(api_resp: &serde_json::Value) -> HashMap<String, serde_json::Value> {
-    let mut artist_map = HashMap::new();
-    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
-        for item in included {
-            if item.get("type").and_then(|v| v.as_str()) == Some("artists") {
-                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-                    artist_map.insert(id.to_string(), item.clone());
-                }
-            }
-        }
-    }
-    artist_map
-}
 
 fn parse_v2_playlist_tracks(
     api_resp: &serde_json::Value,
