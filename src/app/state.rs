@@ -426,6 +426,58 @@ pub enum StatusLevel {
     Error,
 }
 
+// ── Self-update ───────────────────────────────────────────────────────────────
+
+/// Status of a TUI-triggered self-update (the modal dialog).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateStatus {
+    /// Release is newer; waiting for the user to press Enter to confirm.
+    Confirming,
+    /// Downloading, verifying, and installing.
+    Working,
+    /// Installed successfully; restart required.
+    Done,
+    /// Update failed; the binary is untouched.
+    Failed,
+}
+
+pub struct UpdateState {
+    /// Newer tag detected (e.g. "v0.14.0"). Drives the footer hint.
+    pub available: Option<String>,
+    /// True while the background check (3 s after startup) has not yet completed.
+    pub checking: bool,
+    /// True once the first background check produced any outcome (found,
+    /// none, or failed). Prevents pressing `U` from reporting "up to date"
+    /// before a check has actually happened for this install type.
+    pub check_done: bool,
+    /// Update dialog open.
+    pub active: bool,
+    pub status: UpdateStatus,
+    /// Error text when status == Failed.
+    pub error: Option<String>,
+    /// Last update-check failure (offline, rate-limited, …), if the most
+    /// recent check errored. Lets `U` say "check failed" instead of
+    /// misreporting "up to date".
+    pub check_error: Option<String>,
+}
+
+impl Default for UpdateState {
+    fn default() -> Self {
+        Self {
+            available: None,
+            // `checking` starts false so non-self-update installs never show
+            // a stale "Checking…" state; main() flips it to true just before
+            // a background check is actually spawned (Script installs only).
+            checking: false,
+            check_done: false,
+            active: false,
+            status: UpdateStatus::Confirming,
+            error: None,
+            check_error: None,
+        }
+    }
+}
+
 // ── Keybinds ──────────────────────────────────────────────────────────────────
 
 pub struct Keybind {
@@ -470,6 +522,7 @@ impl KeybindGroup {
                 Keybind { key: "n", action: "Next track" },
                 Keybind { key: "p", action: "Previous track" },
                 Keybind { key: "z", action: "Toggle shuffle" },
+                Keybind { key: "U", action: "Update to latest release" },
                 Keybind { key: "+ or =", action: "Volume Up"},
                 Keybind { key: "-", action: "Volume Down"},
                 Keybind { key: "Esc", action: "Back/Go up" },

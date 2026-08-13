@@ -20,6 +20,7 @@ mod player;
 mod playlist;
 mod search;
 mod ui;
+mod update;
 
 use api::ApiWorker;
 use app::App;
@@ -56,6 +57,10 @@ fn main() -> Result<()> {
 
     if args.iter().any(|a| a == "--lastfm-auth") {
         return lastfm_auth();
+    }
+
+    if args.get(1).is_some_and(|a| a == "update") {
+        return update::run_update_cli();
     }
 
     setup_panic_hook();
@@ -141,6 +146,51 @@ fn main() -> Result<()> {
 
     // Build app state and run
     let mut app = App::new(api_req_tx, player_cmd_tx, mpris_state_tx, lastfm_cmd_tx);
+
+    // Self-update actor: checks GitHub once (shortly after startup, so it
+    // never delays the first frame), then stays alive to run a TUI-triggered
+    // install. Skipped entirely for pacman/nix/cargo installs. Not started in
+    // App::new so tests stay offline.
+    if let Some(actor) = app.take_update_actor() {
+        if update::install_method() == update::InstallMethod::Script {
+            // Only Script installs ever check: flip the flag so the TUI shows
+            // the in-progress state until the result lands (cleared in App).
+            app.update.checking = true;
+            let cancel = app.update_cancel.clone();
+            std::thread::spawn(move || {
+                let mut go_rx = actor.go_rx;
+                let check_tx = actor.check_tx;
+                let result_tx = actor.result_tx;
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                let _ = check_tx.send(update::check_for_update());
+                // Loop to handle multiple install attempts (e.g. retry after failure).
+                while let Some(()) = go_rx.blocking_recv() {
+                    // Catch panics so the TUI never hangs in Working. Reset the
+                    // cancel flag per attempt so a retried update can proceed.
+                    cancel.store(false, std::sync::atomic::Ordering::Relaxed);
+                    let outcome = std::panic::catch_unwind(|| update::self_update_with_cancel(&cancel));
+                    let result = match outcome {
+                        Ok(Ok(update::UpdateOutcome::Updated(tag))) => Ok(tag),
+                        Ok(Ok(update::UpdateOutcome::AlreadyCurrent)) => {
+                            Err("Already up to date".to_string())
+                        }
+                        Ok(Err(e)) => Err(format!("{e:#}")),
+                        Err(_) => Err("update panicked".to_string()),
+                    };
+                    // If TUI closed, send will fail — exit loop.
+                    if result_tx.send(result).is_err() {
+                        break;
+                    }
+                }
+                tracing::debug!("update actor: TUI closed or channel dropped");
+            });
+        }
+        // Package-managed installs (pacman/Nix/cargo) never self-update; the
+        // actor is not spawned and the handles simply drop here. The update
+        // dialog is unreachable for them (it requires update.checking or a
+        // found tag), so the go channel can never be written anyway.
+    }
+
     let result = events::run_app(
         &mut terminal,
         &mut app,

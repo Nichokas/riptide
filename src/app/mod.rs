@@ -22,6 +22,15 @@ use crate::search::SearchState;
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
+/// Ends of the self-update channels owned by the update actor thread (main.rs).
+/// `check_tx` carries `Ok(tag)`/`Ok(None)`/`Err(message)` from the one-time
+/// startup availability check.
+pub struct UpdateActorHandles {
+    pub check_tx: mpsc::UnboundedSender<Result<Option<String>, String>>,
+    pub result_tx: mpsc::UnboundedSender<Result<String, String>>,
+    pub go_rx: mpsc::UnboundedReceiver<()>,
+}
+
 pub struct App {
     pub should_quit: bool,
     pub current_tab: Tab,
@@ -56,6 +65,20 @@ pub struct App {
     pub help_active: bool,
     pub help_scroll: u16,
 
+    /// Self-update availability + dialog state.
+    pub update: UpdateState,
+    /// Receives the update-check outcome (found tag / none / failed).
+    pub update_rx: mpsc::UnboundedReceiver<Result<Option<String>, String>>,
+    /// Receives the result of a TUI-triggered update install.
+    pub update_result_rx: mpsc::UnboundedReceiver<Result<String, String>>,
+    /// Signals the update thread to start the install (user pressed Enter).
+    pub update_go_tx: mpsc::UnboundedSender<()>,
+    /// Cancellation flag for an in-flight download/install; set when the
+    /// user quits while Working so the actor aborts before replacing the binary.
+    pub update_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Actor-thread ends of the update channels; taken by main() to spawn it.
+    update_actor: Option<UpdateActorHandles>,
+
     pub tick: u64,
     /// (message, level, Instant when set) — cleared automatically after ~5 s
     pub status: Option<(String, StatusLevel, std::time::Instant)>,
@@ -73,6 +96,13 @@ impl App {
         mpris_tx:  watch::Sender<MprisState>,
         lastfm_tx: mpsc::UnboundedSender<LastfmCmd>,
     ) -> Self {
+        // Self-update plumbing. The check/install thread is NOT started here
+        // (App::new is also used in tests, which must stay offline) — main()
+        // takes the senders back and spawns the actor.
+        let (update_check_tx, update_rx) = mpsc::unbounded_channel();
+        let (update_result_tx, update_result_rx) = mpsc::unbounded_channel();
+        let (update_go_tx, update_go_rx) = mpsc::unbounded_channel();
+
         let mut app = Self {
             should_quit: false,
             current_tab: Tab::Home,
@@ -109,6 +139,16 @@ impl App {
             queue_viewport: ListViewport::default(),
             help_active: false,
             help_scroll: 0,
+            update: UpdateState::default(),
+            update_rx,
+            update_result_rx,
+            update_go_tx,
+            update_cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            update_actor: Some(UpdateActorHandles {
+                check_tx: update_check_tx,
+                result_tx: update_result_tx,
+                go_rx: update_go_rx,
+            }),
             tick:   0,
             status: None,
             api_tx,
@@ -156,6 +196,65 @@ impl App {
 
     pub(crate) fn set_status(&mut self, msg: String, level: StatusLevel) {
         self.status = Some((msg, level, std::time::Instant::now()));
+    }
+
+    /// Hand the update-actor channel ends to main() (once). None in tests.
+    pub fn take_update_actor(&mut self) -> Option<UpdateActorHandles> {
+        self.update_actor.take()
+    }
+
+    /// Record the background update-check outcome; sets the footer hint on a
+    /// found release, or surfaces a check failure instead of "up to date".
+    pub(crate) fn set_update_available(&mut self, result: Result<Option<String>, String>) {
+        match result {
+            Ok(tag) => {
+                self.update.available = tag;
+                self.update.check_error = None;
+            }
+            Err(e) => {
+                self.update.available = None;
+                self.update.check_error = Some(e);
+            }
+        }
+        self.update.checking = false;
+        self.update.check_done = true;
+    }
+
+    /// Open the update confirmation dialog for the known-newer tag.
+    pub(crate) fn open_update_dialog(&mut self) {
+        if self.update.available.is_some() && !self.update.active {
+            self.update.status = UpdateStatus::Confirming;
+            self.update.error = None;
+            self.update.active = true;
+        }
+    }
+
+    /// Record the result of a background install.
+    pub(crate) fn set_update_result(&mut self, result: Result<String, String>) {
+        match result {
+            Ok(tag) => {
+                self.update.status = UpdateStatus::Done;
+                self.update.error = None;
+                // Preserve the installed tag for the Done modal, but the footer
+                // hint is hidden while status == Done (see ui::render_footer).
+                self.update.available = Some(tag.clone());
+                self.update.checking = false;
+                tracing::info!("self-update installed {tag}; restart required");
+            }
+            Err(err) => {
+                // "Already up to date" is a benign no-op, not a failure of the
+                // binary — keep it as Failed for now so the modal shows the
+                // message, but log at info level.
+                if err == "Already up to date" {
+                    tracing::info!("self-update: already up to date");
+                } else {
+                    tracing::warn!("self-update failed: {err}");
+                }
+                self.update.status = UpdateStatus::Failed;
+                self.update.error = Some(err);
+                self.update.checking = false;
+            }
+        }
     }
 
     pub(crate) fn rebuild_favorite_track_ids(&mut self) {

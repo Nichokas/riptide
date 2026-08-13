@@ -73,6 +73,10 @@ pub fn draw(f: &mut Frame, app: &App) {
         render_help_modal(f, app, area);
     }
 
+    if app.update.active {
+        render_update_modal(f, app, area);
+    }
+
     render_toast(f, app, area);
 }
 
@@ -345,6 +349,78 @@ fn render_sort_overlay(f: &mut Frame, app: &App, area: Rect) {
         f.render_widget(
             Paragraph::new(format!("{prefix}{label}")).style(style),
             Rect::new(inner.x, row_y, inner.width, 1),
+        );
+    }
+}
+
+// ── Self-update modal ─────────────────────────────────────────────────────────
+
+fn render_update_modal(f: &mut Frame, app: &App, area: Rect) {
+    let box_w = 52u16.min(area.width.saturating_sub(4));
+    let box_h = 7u16.min(area.height.saturating_sub(4));
+    let x = area.x + area.width.saturating_sub(box_w) / 2;
+    let y = area.y + area.height.saturating_sub(box_h) / 2;
+    let overlay = Rect::new(x, y, box_w.min(area.width), box_h.min(area.height));
+
+    f.render_widget(Clear, overlay);
+    let block = Block::default()
+        .title(Span::styled(" update ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let inner = block.inner(overlay);
+    f.render_widget(block, overlay);
+
+    let current = env!("CARGO_PKG_VERSION");
+    let latest = app.update.available.clone().unwrap_or_default();
+
+    use crate::app::UpdateStatus;
+    // Truncate long error messages to the inner width to prevent overflow.
+    let max_err_len = inner.width.saturating_sub(12) as usize; // room for "  (Esc close)"
+    let (line1, line2, line2_style) = match app.update.status {
+        UpdateStatus::Confirming => (
+            format!("Update available: {current} → {latest}"),
+            "Enter install · Esc cancel".to_string(),
+            Style::default().fg(Color::White),
+        ),
+        UpdateStatus::Working => (
+            format!("Updating {current} → {latest}"),
+            "Downloading, verifying checksum, installing…".to_string(),
+            Style::default().fg(DIM),
+        ),
+        UpdateStatus::Done => (
+            format!("Updated to {latest}"),
+            "Restart riptide to apply.  Enter/Esc close".to_string(),
+            Style::default().fg(Color::Green),
+        ),
+        UpdateStatus::Failed => {
+            let raw = app.update.error.clone().unwrap_or_else(|| "unknown error".into());
+            let truncated = if raw.chars().count() > max_err_len {
+                let mut s: String = raw.chars().take(max_err_len.saturating_sub(1)).collect();
+                s.push('…');
+                s
+            } else {
+                raw
+            };
+            (
+                "Update failed.".to_string(),
+                format!("{truncated}  (Esc close)"),
+                Style::default().fg(Color::Red),
+            )
+        }
+    };
+
+    if inner.height >= 2 {
+        f.render_widget(
+            Paragraph::new(Line::from(line1)).alignment(Alignment::Center),
+            Rect::new(inner.x, inner.y, inner.width, 1),
+        );
+    }
+    // Remaining rows after the title line and a blank separator.
+    let remaining_h = inner.height.saturating_sub(2);
+    if remaining_h > 0 {
+        f.render_widget(
+            Paragraph::new(line2).style(line2_style).alignment(Alignment::Center).wrap(Wrap { trim: true }),
+            Rect::new(inner.x, inner.y + 2, inner.width, remaining_h),
         );
     }
 }
@@ -1932,7 +2008,19 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let context_hint = get_context_hint(app);
-    let context_span = Span::styled(context_hint, Style::default().fg(DIM));
+    // When an update is pending, append a hint — but hide it while the
+    // Done modal is showing (already installed) to avoid stale hint.
+    let show_update_hint = app.update.available.is_some()
+        && app.update.status != crate::app::UpdateStatus::Done;
+    let context_span = if show_update_hint {
+        let tag = app.update.available.as_deref().unwrap_or_default();
+        Span::styled(
+            format!("{}  ↑ {} — U ", context_hint, tag),
+            Style::default().fg(DIM),
+        )
+    } else {
+        Span::styled(context_hint, Style::default().fg(DIM))
+    };
     f.render_widget(
         Paragraph::new(Line::from(context_span)).alignment(Alignment::Left),
         cols[0],

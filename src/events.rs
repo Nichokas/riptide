@@ -46,6 +46,14 @@ pub fn run_app(
             }
         }
 
+        // Drain self-update channel: availability check result + install result
+        while let Ok(result) = app.update_rx.try_recv() {
+            app.set_update_available(result);
+        }
+        while let Ok(result) = app.update_result_rx.try_recv() {
+            app.set_update_result(result);
+        }
+
         // Check for more data to load
         check_load_more(app);
 
@@ -100,6 +108,11 @@ fn leaving_artist(app: &App) -> bool {
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) {
+    if app.update.active {
+        handle_update_input(app, key);
+        return;
+    }
+
     if app.help_active {
         handle_help_input(app, key);
         return;
@@ -186,7 +199,75 @@ fn handle_key(app: &mut App, key: KeyEvent) {
                 app.set_status("No track selected".to_string(), crate::app::StatusLevel::Error);
             }
         }
+        KeyCode::Char('U') | KeyCode::Char('u') => {
+            if app.update.checking {
+                app.set_status("Checking for updates…".to_string(), crate::app::StatusLevel::Info);
+            } else if app.update.available.is_some() {
+                app.open_update_dialog();
+            } else if let Some(err) = &app.update.check_error {
+                app.set_status(format!("Update check failed: {err}"), crate::app::StatusLevel::Error);
+            } else if app.update.check_done {
+                app.set_status("Riptide is up to date".to_string(), crate::app::StatusLevel::Info);
+            } else {
+                // No check ever ran for this install: package-managed
+                // (pacman/Nix/cargo all self-classify here). Direct to the
+                // owning package manager rather than self-update.
+                app.set_status(
+                    "Updates are handled by your package manager".to_string(),
+                    crate::app::StatusLevel::Info,
+                );
+            }
+        }
         _ => handle_navigation(app, key),
+    }
+}
+
+/// Input handler for the self-update modal (captures all keys while open).
+fn handle_update_input(app: &mut App, key: KeyEvent) {
+    use crate::app::UpdateStatus;
+    match app.update.status {
+        UpdateStatus::Confirming => match key.code {
+            KeyCode::Enter => {
+                // Try to signal the actor; if the channel is closed, show error instead of hanging in Working.
+                if app.update_go_tx.send(()).is_err() {
+                    app.update.status = UpdateStatus::Failed;
+                    app.update.error = Some("update service unavailable".to_string());
+                } else {
+                    app.update.status = UpdateStatus::Working;
+                }
+            }
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('U') | KeyCode::Char('u') => {
+                app.update.active = false;
+            }
+            _ => {}
+        },
+        UpdateStatus::Working => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+                // Request actor cancellation: the blocking download polls the
+                // flag between stages and will bail before replacing the binary.
+                // The TUI quit itself is always honoured immediately.
+                app.update_cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                app.should_quit = true;
+            }
+            _ => {} // otherwise uninterruptible — keep Working status
+        },
+        UpdateStatus::Done | UpdateStatus::Failed => match key.code {
+            KeyCode::Esc
+            | KeyCode::Enter
+            | KeyCode::Char('q')
+            | KeyCode::Char('U')
+            | KeyCode::Char('u')
+            | KeyCode::Char(' ') => {
+                // After a successful install, clear the footer hint on dismiss
+                // (the modal already showed the installed tag).
+                if app.update.status == UpdateStatus::Done {
+                    app.update.available = None;
+                }
+                app.update.active = false;
+            }
+            _ => {}
+        },
     }
 }
 
