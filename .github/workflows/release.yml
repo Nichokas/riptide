@@ -21,6 +21,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
 
       - name: Run tests
         run: cargo test
@@ -38,6 +40,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
 
       - name: Build release
         run: cargo build --release --target x86_64-unknown-linux-gnu
@@ -57,74 +61,50 @@ jobs:
             riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz
             riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz.sha256
 
-  build-macos-intel:
+  build-macos:
     needs: test
-    name: Build x86_64-macos
-    runs-on: macos-26-intel
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install system dependencies
-        run: |
-          brew install chafa
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build release
-        run: cargo build --release
-
-      - name: Create archive
-        run: |
-          cd target/release
-          tar -czf ../../riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz riptide
-          cd ../../
-          sha256sum riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz > riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz.sha256
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: riptide-${{ github.ref_name }}-x86_64-apple-darwin
-          path: |
-            riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz
-            riptide-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz.sha256
-
-  build-macos-arm:
-    needs: test
-    name: Build aarch64-macos (native ARM)
+    name: Build macOS (arm64 + x86_64)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install system dependencies
-        run: brew install chafa
-
+      # x86_64 is cross-compiled from the Apple Silicon runner rather than built
+      # on a macos-*-intel runner, which took 3.3x as long for the same work
+      # (485s vs 146s to compile). Nothing in the tree needs a C toolchain:
+      # zbus is pure Rust, image has default features off, and openssl-sys is
+      # only pulled in on Linux since native-tls uses Security.framework here.
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
 
-      - name: Build release (native ARM64)
-        run: cargo build --release
-
-      - name: Create archive
+      - name: Build release
         run: |
-          cd target/release
-          tar -czf ../../riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz riptide
-          cd ../../
-          sha256sum riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz > riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz.sha256
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+
+      - name: Create archives
+        run: |
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            name="riptide-${{ github.ref_name }}-$target"
+            tar -czf "$name.tar.gz" -C "target/$target/release" riptide
+            sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: riptide-${{ github.ref_name }}-aarch64-apple-darwin
+          name: riptide-${{ github.ref_name }}-macos
           path: |
-            riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
-            riptide-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz.sha256
+            riptide-${{ github.ref_name }}-*-apple-darwin.tar.gz
+            riptide-${{ github.ref_name }}-*-apple-darwin.tar.gz.sha256
 
   create-release:
     name: Create Release
-    needs: [build-linux, build-macos-intel, build-macos-arm]
+    needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
