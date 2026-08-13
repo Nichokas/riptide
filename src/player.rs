@@ -21,6 +21,8 @@ pub enum PlayerCmd {
     RemoveNext,
     SetMediaTitle(String),
     ChangeVolume(i8),
+    /// Absolute level, used to restore the saved volume at startup.
+    SetVolume(u8),
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +128,11 @@ impl PlayerWorker {
                         PlayerCmd::ChangeVolume(c) => {
                             let _ = ipc_tx.send(IpcRequest::Write(
                                 json!({"command": ["add", "volume", c]}).to_string()
+                            ));
+                        }
+                        PlayerCmd::SetVolume(v) => {
+                            let _ = ipc_tx.send(IpcRequest::Write(
+                                json!({"command": ["set_property", "volume", v]}).to_string()
                             ));
                         }
                     }

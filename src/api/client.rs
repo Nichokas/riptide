@@ -345,9 +345,14 @@ fn parse_v2_playlist_tracks(
         }
     }
 
+    // The playlist's real item count is data.attributes.numberOfItems. This used
+    // to read meta.totalNumberOfItems — a v1 field name. v2 sends no top-level
+    // `meta` on this endpoint at all, so the lookup never matched and the count
+    // silently fell back to the page size (20) instead of the playlist total.
     let total = api_resp
-        .get("meta")
-        .and_then(|v| v.get("totalNumberOfItems"))
+        .get("data")
+        .and_then(|v| v.get("attributes"))
+        .and_then(|v| v.get("numberOfItems"))
         .and_then(|v| v.as_u64())
         .unwrap_or(tracks.len() as u64) as u32;
 

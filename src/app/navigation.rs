@@ -18,10 +18,7 @@ impl App {
             Tab::Search    => Tab::Home,
         };
         self.view_stack.clear();
-        if self.current_tab == Tab::Search {
-            self.search.modal_open = true;
-            self.search.query.clear();
-        }
+        self.on_tab_entered();
     }
 
     pub fn prev_tab(&mut self) {
@@ -34,28 +31,33 @@ impl App {
             Tab::Search    => Tab::Playlists,
         };
         self.view_stack.clear();
-        if self.current_tab == Tab::Search {
-            self.search.modal_open = true;
-            self.search.query.clear();
-        }
+        self.on_tab_entered();
     }
 
     pub fn set_tab(&mut self, tab: Tab) {
         self.current_tab = tab;
         self.view_stack.clear();
-        if self.current_tab == Tab::Search {
+        self.on_tab_entered();
+    }
+
+    /// Landing on Search drops straight into the query box, but only when there
+    /// are no results to come back to. Otherwise the previous results stay
+    /// browsable and `/` reopens the box. The query is deliberately left intact
+    /// so tabbing away and back doesn't discard what was typed; `/` is the
+    /// explicit "start a new search" action and clears it.
+    fn on_tab_entered(&mut self) {
+        // Switching tabs means the user wants the new tab's content, so release
+        // the queue — otherwise it keeps capturing the arrow keys from behind.
+        self.queue_focused = false;
+
+        if self.current_tab == Tab::Search && !self.search.has_results() {
             self.search.modal_open = true;
-            self.search.query.clear();
         }
     }
 
     // ── View stack ────────────────────────────────────────────────────────────
 
     pub fn go_back(&mut self) {
-        if self.search.active {
-            self.search.active = false;
-            return;
-        }
         if !self.view_stack.is_empty() {
             self.view_stack.pop();
         }

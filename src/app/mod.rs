@@ -50,6 +50,7 @@ pub struct App {
     pub now_playing: NowPlaying,
 
     pub queue_focused: bool,
+    pub queue_visible: bool,
     pub queue_cursor:  usize,
     queue_viewport: ListViewport,
 
@@ -72,6 +73,7 @@ impl App {
         player_tx: mpsc::UnboundedSender<PlayerCmd>,
         mpris_tx:  watch::Sender<MprisState>,
         lastfm_tx: mpsc::UnboundedSender<LastfmCmd>,
+        prefs:     Preferences,
     ) -> Self {
         let mut app = Self {
             should_quit: false,
@@ -92,19 +94,22 @@ impl App {
             command:     CommandState::default(),
             sort_palette:    SortPalette::default(),
             artist_selection: ArtistSelection::default(),
-            favorites_sort:  None,
-            artists_sort:    None,
-            fav_albums_sort: None,
-            playlists_sort:  None,
+            favorites_sort:  prefs.favorites_sort,
+            artists_sort:    prefs.artists_sort,
+            fav_albums_sort: prefs.fav_albums_sort,
+            playlists_sort:  prefs.playlists_sort,
             now_playing: {
                 let mut np = NowPlaying::default();
                 // Load logo as default art
                 if let Ok(logo_bytes) = std::fs::read("assets/wave-logo-320-transparent.png") {
                     np.art_bytes = Some(logo_bytes);
                 }
+                np.volume = prefs.volume;
+                np.shuffle = prefs.shuffle;
                 np
             },
             queue_focused: false,
+            queue_visible: prefs.queue_visible,
             queue_cursor:  0,
             queue_viewport: ListViewport::default(),
             help_active: false,
@@ -116,12 +121,29 @@ impl App {
             mpris_tx,
             lastfm_tx,
         };
+        // mpv starts at its own default, so the restored level has to be pushed
+        // across rather than just held in state.
+        let _ = app.player_tx.send(PlayerCmd::SetVolume(prefs.volume));
+
         app.load_home();
         app.load_artists();
         app.load_fav_albums();
         app.load_playlists();
         app.load_favorites();
         app
+    }
+
+    /// Snapshot the persistable UI choices for writing back to `Config`.
+    pub fn preferences(&self) -> Preferences {
+        Preferences {
+            favorites_sort: self.favorites_sort,
+            artists_sort: self.artists_sort,
+            fav_albums_sort: self.fav_albums_sort,
+            playlists_sort: self.playlists_sort,
+            volume: self.now_playing.volume,
+            shuffle: self.now_playing.shuffle,
+            queue_visible: self.queue_visible,
+        }
     }
 
     pub fn queue_scroll_offset(&self, height: usize) -> usize {
@@ -164,6 +186,15 @@ impl App {
 
     pub(crate) fn rebuild_favorite_album_ids(&mut self) {
         self.favorite_album_ids = self.fav_albums.items.iter().map(|a| a.id).collect();
+    }
+
+    /// Show/hide the queue panel. Hiding it while it holds focus would strand
+    /// the cursor in an invisible pane, so focus returns to the content list.
+    pub(crate) fn toggle_queue_visible(&mut self) {
+        self.queue_visible = !self.queue_visible;
+        if !self.queue_visible {
+            self.queue_focused = false;
+        }
     }
 
     pub(crate) fn rebuild_favorite_artist_ids(&mut self) {

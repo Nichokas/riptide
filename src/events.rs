@@ -125,8 +125,8 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Search overlay captures all keys while active or modal is open, regardless of current tab.
-    if app.search.active || app.search.modal_open {
+    // The search box captures all keys while open, regardless of current tab.
+    if app.search.modal_open {
         handle_search_input(app, key);
         return;
     }
@@ -140,7 +140,20 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         }
     }
 
-    // Global bindings
+    if !handle_global_key(app, key) {
+        handle_navigation(app, key);
+    }
+}
+
+/// Bindings that apply everywhere: transport, volume, tabs, help, quit.
+///
+/// Returns whether the key was consumed. Kept separate from `handle_key` so that
+/// panes which capture input — the queue especially — can match their own keys
+/// first and then defer here, instead of re-implementing each binding. That
+/// duplication had already drifted: the queue re-declared play/pause, shuffle
+/// and quit while silently dropping help, the command palette, tab switching,
+/// next/previous track and volume.
+fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
     match key.code {
         KeyCode::Char('q') | KeyCode::Char('Q') => {
             app.should_quit = true;
@@ -169,6 +182,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
             app.prev_tab();
         }
         KeyCode::Char(' ') => app.toggle_pause(),
+        KeyCode::Char('t') => app.toggle_queue_visible(),
         KeyCode::Char('n') => app.next_track(),
         KeyCode::Char('p') => app.prev_track(),
         KeyCode::Char('z') => app.toggle_shuffle(),
@@ -186,8 +200,9 @@ fn handle_key(app: &mut App, key: KeyEvent) {
                 app.set_status("No track selected".to_string(), crate::app::StatusLevel::Error);
             }
         }
-        _ => handle_navigation(app, key),
+        _ => return false,
     }
+    true
 }
 
 fn handle_command_input(app: &mut App, key: KeyEvent) {
@@ -941,83 +956,54 @@ fn handle_navigation(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_search_input(app: &mut App, key: KeyEvent) {
-    // If modal is open, handle input for the search modal
-    if app.search.modal_open {
-        match key.code {
-            KeyCode::Esc => {
-                app.search.modal_open = false;
-                app.prev_tab();
-            }
-            KeyCode::Enter => {
-                let query = app.search.query.clone();
-                app.search.modal_open = false;
-                if !query.is_empty() {
-                    app.search.loading = true;
-                    app.search.tracks_awaiting_page2 = true;
-                    app.search.artists_awaiting_page2 = true;
-                    app.search.playlists_awaiting_page2 = true;
-                    app.search.track_sel = 0;
-                    app.search.artist_sel = 0;
-                    app.search.playlist_sel = 0;
-                    app.search.tracks.clear();
-                    app.search.artists.clear();
-                    app.search.playlists.clear();
-                    app.search.reset_viewports();
-                    app.search.pane = SearchPane::Tracks;
-                    let _ = app.api_tx.send(ApiRequest::SearchTracks { query: query.clone() });
-                    let _ = app.api_tx.send(ApiRequest::SearchArtistsMain { query: query.clone() });
-                    let _ = app.api_tx.send(ApiRequest::SearchPlaylistsMain { query });
-                }
-            }
-            KeyCode::Backspace => {
-                app.search.query.pop();
-            }
-            KeyCode::Char(c) => {
-                app.search.query.push(c);
-            }
-            _ => {}
+    match key.code {
+        // Esc dismisses the box, matching Esc everywhere else in the app. It
+        // used to jump to the previous tab, which was the only way out.
+        KeyCode::Esc => {
+            app.search.modal_open = false;
         }
-    } else {
-        // Original behavior for search results navigation
-        match key.code {
-            KeyCode::Tab => {
-                app.search.active = false;
+        // Tab must keep working while the box is open — it is otherwise
+        // swallowed by the catch-all below and the user is stuck.
+        KeyCode::Tab => {
+            app.search.modal_open = false;
+            if key.modifiers.contains(KeyModifiers::SHIFT) {
+                app.prev_tab();
+            } else {
                 app.next_tab();
             }
-            KeyCode::BackTab => {
-                app.search.active = false;
-                app.prev_tab();
-            }
-            KeyCode::Esc => {
-                // Close overlay, stay on current view.
-                app.search.active = false;
-            }
-            KeyCode::Enter => {
-                let query = app.search.query.clone();
-                app.search.active = false;
-                if !query.is_empty() {
-                    if leaving_album(app) { kitty_delete_album_art(); }
-                    app.view_stack.clear();
-                    app.current_tab = Tab::Search;
-                    app.search.loading = true;
-                    app.search.track_sel = 0;
-                    app.search.artist_sel = 0;
-                    app.search.playlist_sel = 0;
-                    app.search.reset_viewports();
-                    app.search.pane = SearchPane::Tracks;
-                    let _ = app.api_tx.send(ApiRequest::SearchTracks { query: query.clone() });
-                    let _ = app.api_tx.send(ApiRequest::SearchArtistsMain { query: query.clone() });
-                    let _ = app.api_tx.send(ApiRequest::SearchPlaylistsMain { query });
-                }
-            }
-            KeyCode::Backspace => {
-                app.search.query.pop();
-            }
-            KeyCode::Char(c) => {
-                app.search.query.push(c);
-            }
-            _ => {}
         }
+        KeyCode::BackTab => {
+            app.search.modal_open = false;
+            app.prev_tab();
+        }
+        KeyCode::Enter => {
+            let query = app.search.query.clone();
+            app.search.modal_open = false;
+            if !query.is_empty() {
+                app.search.loading = true;
+                app.search.tracks_awaiting_page2 = true;
+                app.search.artists_awaiting_page2 = true;
+                app.search.playlists_awaiting_page2 = true;
+                app.search.track_sel = 0;
+                app.search.artist_sel = 0;
+                app.search.playlist_sel = 0;
+                app.search.tracks.clear();
+                app.search.artists.clear();
+                app.search.playlists.clear();
+                app.search.reset_viewports();
+                app.search.pane = SearchPane::Tracks;
+                let _ = app.api_tx.send(ApiRequest::SearchTracks { query: query.clone() });
+                let _ = app.api_tx.send(ApiRequest::SearchArtistsMain { query: query.clone() });
+                let _ = app.api_tx.send(ApiRequest::SearchPlaylistsMain { query });
+            }
+        }
+        KeyCode::Backspace => {
+            app.search.query.pop();
+        }
+        KeyCode::Char(c) => {
+            app.search.query.push(c);
+        }
+        _ => {}
     }
 }
 
@@ -1068,12 +1054,19 @@ fn handle_queue_input(app: &mut App, key: KeyEvent) {
                 app.copy_url(url);
             }
         }
-        KeyCode::Char('z') => app.toggle_shuffle(),
-        KeyCode::Char(' ') => app.toggle_pause(),
-        KeyCode::Char('q') | KeyCode::Char('Q') => {
-            app.should_quit = true;
+        // Targets the cursor rather than the playing track: get_selected_track()
+        // (used by the global binding) has no notion of the queue cursor and
+        // would jump to the wrong artist while the queue is focused.
+        KeyCode::Char('g') => {
+            if let Some(track) = app.now_playing.queue.get(app.queue_cursor).cloned() {
+                app.go_to_artist_from_track(&track);
+            } else {
+                app.set_status("No track selected".to_string(), crate::app::StatusLevel::Error);
+            }
         }
-        _ => {}
+        // Anything the queue doesn't claim falls through to the global bindings
+        // so transport, volume, tabs and help keep working in here.
+        _ => { handle_global_key(app, key); }
     }
 }
 

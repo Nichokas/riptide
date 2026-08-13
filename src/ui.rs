@@ -8,7 +8,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
-use ratatui_image::{picker::Picker, Image, Resize};
+use ratatui_image::{picker::Picker, protocol::Protocol, Image, Resize};
 
 use crate::app::{App, ArtistDetailFocus, StatusLevel, Tab, View, KeybindGroup};
 use crate::search::SearchPane;
@@ -31,31 +31,35 @@ fn fmt_sample_rate(hz: u32) -> String {
 }
 const HIGHLIGHT_BG: Color = Color::Rgb(40, 40, 55);
 const SELECT_BG: Color = Color::Rgb(30, 100, 200);
-const SIDEBAR_W: u16 = 20;
 const QUEUE_W: u16 = 26;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
 
     let rows = Layout::vertical([
-        Constraint::Min(0),    // sidebar + content + queue
-        Constraint::Length(9), // now-playing bar
-        Constraint::Length(1), // help hint
+        Constraint::Length(3),  // tab bar (boxed active tab needs 3 rows)
+        Constraint::Min(0),     // content + queue
+        Constraint::Length(16), // now-playing bar (art stacked above track info)
+        Constraint::Length(1),  // help hint
     ])
     .split(area);
 
-    let cols = Layout::horizontal([
-        Constraint::Length(SIDEBAR_W),
-        Constraint::Min(0),
-        Constraint::Length(QUEUE_W),
-    ])
-    .split(rows[0]);
+    render_tab_bar(f, app, rows[0]);
 
-    render_sidebar(f, app, cols[0]);
-    render_content(f, app, cols[1]);
-    render_queue(f, app, cols[2]);
-    render_now_playing(f, app, rows[1]);
-    render_footer(f, app, rows[2]);
+    if app.queue_visible {
+        let cols = Layout::horizontal([
+            Constraint::Min(0),
+            Constraint::Length(QUEUE_W),
+        ])
+        .split(rows[1]);
+        render_content(f, app, cols[0]);
+        render_queue(f, app, cols[1]);
+    } else {
+        render_content(f, app, rows[1]);
+    }
+
+    render_now_playing(f, app, rows[2]);
+    render_footer(f, app, rows[3]);
 
     if app.command.active {
         render_command_overlay(f, app, area);
@@ -76,75 +80,72 @@ pub fn draw(f: &mut Frame, app: &App) {
     render_toast(f, app, area);
 }
 
-// ── Sidebar ───────────────────────────────────────────────────────────────────
+// ── Tab bar ───────────────────────────────────────────────────────────────────
 
-fn render_sidebar(f: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::RIGHT)
-        .border_style(Style::default().fg(Color::Rgb(40, 40, 40)));
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+/// Horizontal tab strip across the top, with a box drawn around the active tab.
+/// Colours match `render_carousel_tabs` in the artist and search views so
+/// navigation reads the same everywhere.
+///
+/// Tabs are placed one at a time rather than as a single centered `Line` so the
+/// active tab's exact column span is known and the box can be drawn around it.
+fn render_tab_bar(f: &mut Frame, app: &App, area: Rect) {
+    const SEP: &str = " - ";
 
-    if inner.width == 0 || inner.height < 4 {
+    if area.height < 3 || area.width == 0 {
         return;
     }
 
-    let art_h = (inner.width / 2).min(inner.height.saturating_sub(5));
+    let titles: Vec<&str> = Tab::ALL.iter().map(|t| t.title()).collect();
+    let sep_w = SEP.chars().count() as u16;
+    let total_w: u16 = titles.iter().map(|t| t.chars().count() as u16).sum::<u16>()
+        + sep_w * titles.len().saturating_sub(1) as u16;
 
-    let layout = Layout::vertical([
-        Constraint::Length(art_h),
-        Constraint::Length(1),
-        Constraint::Min(0),
-    ])
-    .split(inner);
+    // Centre the strip, leaving room for the active tab's left border.
+    let mut x = area.x + area.width.saturating_sub(total_w) / 2;
+    let text_y = area.y + 1;
 
-    render_sidebar_art(f, app, layout[0]);
+    let mut active: Option<(u16, u16)> = None;
 
-    let div = "─".repeat(inner.width as usize);
-    f.render_widget(
-        Paragraph::new(div).style(Style::default().fg(Color::Rgb(40, 40, 40))),
-        layout[1],
-    );
-
-    render_sidebar_nav(f, app, layout[2]);
-}
-
-fn render_sidebar_art(f: &mut Frame, app: &App, area: Rect) {
-    let np = &app.now_playing;
-    let w = area.width;
-    let h = area.height;
-    if w == 0 || h == 0 {
-        return;
-    }
-
-    if let Some(bytes) = &np.art_bytes {
-        render_image(f, bytes, area);
-    } else if np.art_loading {
-        let spinner = spinner_char(app.tick);
-        f.render_widget(
-            Paragraph::new(spinner.to_string())
-                .style(Style::default().fg(DIM))
-                .alignment(Alignment::Center),
-            area,
-        );
-    }
-}
-
-fn render_sidebar_nav(f: &mut Frame, app: &App, area: Rect) {
     for (i, tab) in Tab::ALL.iter().enumerate() {
-        let y = area.y + i as u16;
-        if y >= area.y + area.height {
-            break;
+        if i > 0 {
+            f.render_widget(
+                Paragraph::new(SEP).style(Style::default().fg(DIM)),
+                Rect::new(x, text_y, sep_w, 1),
+            );
+            x += sep_w;
         }
+
+        let w = titles[i].chars().count() as u16;
         let selected = app.current_tab == *tab;
-        let (prefix, style) = if selected {
-            ("│", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+        if selected {
+            active = Some((x, w));
+        }
+
+        let style = if selected {
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
         } else {
-            (" ", Style::default().fg(DIM))
+            Style::default().fg(DIM)
         };
         f.render_widget(
-            Paragraph::new(format!("{}{}", prefix, tab.title())).style(style),
-            Rect::new(area.x, y, area.width, 1),
+            Paragraph::new(titles[i]).style(style),
+            Rect::new(x, text_y, w, 1),
+        );
+
+        x += w;
+    }
+
+    // Drawn after the loop: the box hugs the label with one cell either side,
+    // overwriting the padding spaces of the adjacent " - " separators. Doing it
+    // inside the loop would let the *next* tab's separator erase the right
+    // border. A bare Block only paints border cells, so the label survives.
+    if let Some((tab_x, tab_w)) = active {
+        let box_x = tab_x.saturating_sub(1);
+        let box_w = (tab_w + 2).min(area.right().saturating_sub(box_x));
+        f.render_widget(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(ACCENT)),
+            Rect::new(box_x, area.y, box_w, 3),
         );
     }
 }
@@ -509,7 +510,7 @@ fn render_content(f: &mut Frame, app: &App, area: Rect) {
         Tab::Albums => render_fav_albums_list(f, app, area),
         Tab::Playlists => render_playlist_list(f, app, area),
         Tab::Favorites => {
-            let title = format!(" Tracks ({}) ", app.favorites.items.len());
+            let title = format!(" Tracks ({}){} ", app.favorites.items.len(), sort_suffix(app));
             render_track_list(f, app, &app.favorites, true, area, &title);
         }
         Tab::Search => render_search_results(f, app, area),
@@ -641,6 +642,14 @@ fn render_home_section(
 
 // ── Artists list ──────────────────────────────────────────────────────────────
 
+/// Trailing " · A-Z" for a list title, showing how the list is ordered. Empty on
+/// tabs that don't sort, so it can be appended unconditionally.
+fn sort_suffix(app: &App) -> String {
+    app.active_sort()
+        .map(|f| format!(" · {}", f.label()))
+        .unwrap_or_default()
+}
+
 fn render_artist_list(f: &mut Frame, app: &App, area: Rect) {
     let loading = app.artists.loading && app.artists.items.is_empty();
     let spinner = spinner_char(app.tick);
@@ -649,7 +658,7 @@ fn render_artist_list(f: &mut Frame, app: &App, area: Rect) {
         .title(if loading {
             format!(" Artists {spinner} ")
         } else {
-            format!(" Artists ({}) ", app.artists.total)
+            format!(" Artists ({}){} ", app.artists.total, sort_suffix(app))
         })
         .borders(Borders::TOP)
         .border_style(Style::default().fg(ACCENT));
@@ -694,7 +703,7 @@ fn render_fav_albums_list(f: &mut Frame, app: &App, area: Rect) {
         .title(if loading {
             format!(" Albums {spinner} ")
         } else {
-            format!(" Albums ({}) ", app.fav_albums.total)
+            format!(" Albums ({}){} ", app.fav_albums.total, sort_suffix(app))
         })
         .borders(Borders::TOP)
         .border_style(Style::default().fg(ACCENT));
@@ -959,9 +968,11 @@ fn render_artist_tracks_full(
             let prefix = if selected { "▶ " } else { "  " };
             let playing = app.now_playing.track.as_ref().map(|t| t.id == track.id).unwrap_or(false);
             let indicator = if playing { "♪ " } else { "" };
+            // `i` stays 0-based for selection; only the displayed ordinal is 1-based.
+            let n = i + 1;
 
             let title_span = Span::styled(
-                format!("{prefix}{indicator}{i:>2}. {} ({})", track.title, track.duration_display()),
+                format!("{prefix}{indicator}{n:>2}. {} ({})", track.title, track.duration_display()),
                 style
             );
 
@@ -1171,7 +1182,7 @@ fn render_playlist_list(f: &mut Frame, app: &App, area: Rect) {
         .title(if loading {
             format!(" Playlists {spinner} ")
         } else {
-            format!(" Playlists ({}) ", app.playlists.total)
+            format!(" Playlists ({}){} ", app.playlists.total, sort_suffix(app))
         })
         .borders(Borders::TOP)
         .border_style(Style::default().fg(ACCENT));
@@ -1248,10 +1259,12 @@ fn render_track_list(
             };
             let prefix = if is_selected { "▶ " } else { "  " };
             let playing = if is_playing { "♪ " } else { "" };
+            // `i` stays 0-based for selection; only the displayed ordinal is 1-based.
+            let n = i + 1;
 
             let title_span = Span::styled(
                 format!(
-                    "{prefix}{playing}{i:>3}. {} — {} ({})",
+                    "{prefix}{playing}{n:>3}. {} — {} ({})",
                     track.title,
                     track.all_artist_names(),
                     track.duration_display()
@@ -1499,22 +1512,6 @@ fn render_playlist_detail(f: &mut Frame, app: &App, detail: &crate::app::Playlis
 
 // ── Search results (three-pane layout) ───────────────────────────────────────
 
-fn render_search_input_line(app: &App) -> Line<'static> {
-    let cursor = if (app.tick / 30) % 2 == 0 { "█" } else { " " };
-    if app.search.query.is_empty() {
-        Line::from(vec![
-            Span::styled("Search  ", Style::default().fg(DIM)),
-            Span::styled(cursor.to_owned(), Style::default().fg(ACCENT)),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled("Search  ", Style::default().fg(DIM)),
-            Span::styled(app.search.query.clone(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled(cursor.to_owned(), Style::default().fg(ACCENT)),
-        ])
-    }
-}
-
 fn render_search_modal(f: &mut Frame, app: &App, area: Rect) {
     // Center a search input modal
     let modal_width = 60.min(area.width - 4);
@@ -1578,12 +1575,23 @@ fn render_search_results(f: &mut Frame, app: &App, area: Rect) {
         ])
         .split(inner);
 
-        let content: Line = if app.search.active {
-            render_search_input_line(app)
-        } else if app.search.query.is_empty() {
-            Line::from(Span::styled("Start typing to search", Style::default().fg(DIM)))
+        // The modal is closed here, so keystrokes do not reach a query box —
+        // point at the key that reopens it rather than saying "start typing".
+        let content: Line = if app.search.query.is_empty() {
+            Line::from(vec![
+                Span::styled("Press ", Style::default().fg(DIM)),
+                Span::styled("/", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled(" to search", Style::default().fg(DIM)),
+            ])
         } else {
-            Line::from(Span::styled("No results", Style::default().fg(DIM)))
+            Line::from(vec![
+                Span::styled(
+                    format!("No results for \"{}\" — press ", app.search.query),
+                    Style::default().fg(DIM),
+                ),
+                Span::styled("/", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled(" to search again", Style::default().fg(DIM)),
+            ])
         };
         f.render_widget(
             Paragraph::new(content).alignment(Alignment::Center),
@@ -1603,22 +1611,7 @@ fn render_search_results(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    // Results — optionally show live input above results when user is re-searching
-    let (input_area, results_area) = if app.search.active {
-        let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
-        (Some(rows[0]), rows[1])
-    } else {
-        (None, area)
-    };
-
-    if let Some(ia) = input_area {
-        f.render_widget(
-            Paragraph::new(render_search_input_line(app)).alignment(Alignment::Center),
-            ia,
-        );
-    }
-
-    render_search_carousel_tabs(f, app, results_area);
+    render_search_carousel_tabs(f, app, area);
 }
 
 fn render_search_carousel_tabs(f: &mut Frame, app: &App, area: Rect) {
@@ -1799,20 +1792,47 @@ fn render_now_playing(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(block, area);
 
     let sections = Layout::vertical([
-        Constraint::Length(3), // lyrics
-        Constraint::Length(1), // spacer
-        Constraint::Min(0),    // track info / waveform / time and volume
+        Constraint::Min(0),    // art (see below — it also spans the lyrics rows)
+        Constraint::Length(1), // gap
+        Constraint::Length(3), // lyrics — sits directly above the waveform row
+        Constraint::Length(4), // track info / waveform / time and volume
     ])
     .split(inner);
-
-    render_lyrics(f, app, sections[0]);
 
     let cols = Layout::horizontal([
         Constraint::Percentage(35),
         Constraint::Percentage(30),
         Constraint::Percentage(35),
     ])
-    .split(sections[2]);
+    .split(sections[3]);
+
+    // The art fills everything above the track info bar one blank line. It
+    // deliberately runs past its own section and down alongside the lyrics:
+    // lyrics are centred while the art is left-aligned, so a tall cover sits
+    // beside them rather than under them. Stopping the art at its section
+    // instead would leave the lyrics' full height as dead space in this column.
+    // Width is twice the height because terminal cells are about half as wide as
+    // tall, which keeps the cover square.
+    let art_h = sections[3].y.saturating_sub(inner.y).saturating_sub(1);
+    let art_w = (art_h * 2).min(cols[0].width);
+    render_now_playing_art(f, app, Rect::new(inner.x, inner.y, art_w, art_h));
+
+    // Lyrics are centred across whatever rect they're given, so a long line
+    // would run left into the cover. Inset both sides by the art's width to keep
+    // them clear of it while staying centred on the bar. Narrow terminals fall
+    // back to the full width — overlap is better than a two-word column.
+    let inset = art_w + 1;
+    let lyrics_area = if inner.width > inset * 2 + 20 {
+        Rect::new(
+            inner.x + inset,
+            sections[2].y,
+            inner.width - inset * 2,
+            sections[2].height,
+        )
+    } else {
+        sections[2]
+    };
+    render_lyrics(f, app, lyrics_area);
 
     let track_info: Vec<Line> = match &app.now_playing.track {
         Some(t) => {
@@ -1864,6 +1884,24 @@ fn render_now_playing(f: &mut Frame, app: &App, area: Rect) {
         cols[2],
     );
 
+}
+
+fn render_now_playing_art(f: &mut Frame, app: &App, area: Rect) {
+    let np = &app.now_playing;
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    if let Some(bytes) = &np.art_bytes {
+        render_image(f, bytes, area);
+    } else if np.art_loading {
+        f.render_widget(
+            Paragraph::new(spinner_char(app.tick).to_string())
+                .style(Style::default().fg(DIM))
+                .alignment(Alignment::Center),
+            area,
+        );
+    }
 }
 
 fn render_lyrics(f: &mut Frame, app: &App, area: Rect) {
@@ -2084,15 +2122,63 @@ fn get_picker() -> &'static Picker {
     })
 }
 
+thread_local! {
+    /// Cached terminal-image protocols, keyed by (image content, target size).
+    ///
+    /// Building a protocol decodes the source image and re-encodes it for the
+    /// terminal's graphics protocol — ~760 µs for a 320x320 JPEG under Kitty.
+    /// Worse, every rebuild produces a *different* payload (a fresh image id),
+    /// so ratatui's buffer diff cannot skip it and the whole ~135 KiB escape
+    /// sequence is written to the terminal again. With two images on screen —
+    /// the now-playing art plus a detail view's art — that came to ~16 MiB/s at
+    /// 60 fps, which is what made the cursor lag in the artist, album and
+    /// playlist views.
+    ///
+    /// Cached protocols render byte-identical cells on repeat frames, so the
+    /// diff emits nothing at all once the image has been sent.
+    static PROTOCOL_CACHE: std::cell::RefCell<
+        std::collections::HashMap<(u64, u16, u16), Protocol>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Only a couple of (image, size) pairs are ever live at once, so a small cap
+/// with a wholesale clear is enough to bound growth as the user browses.
+const PROTOCOL_CACHE_CAP: usize = 8;
+
 fn render_image(f: &mut Frame, bytes: &[u8], area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
 
-    if let Ok(img) = image::load_from_memory(bytes) {
-        let picker = get_picker();
-        if let Ok(protocol) = picker.new_protocol(img, area.into(), Resize::Fit(None)) {
-            f.render_widget(Image::new(&protocol), area);
+    // Hash the content rather than keying on the slice's address: art buffers
+    // are freed and reallocated as the user browses, and an allocator reusing
+    // an address for a same-sized image would otherwise serve a stale picture.
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        (hasher.finish(), area.width, area.height)
+    };
+
+    PROTOCOL_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+
+        if !cache.contains_key(&key) {
+            let Ok(img) = image::load_from_memory(bytes) else {
+                return;
+            };
+            let Ok(protocol) = get_picker().new_protocol(img, area.into(), Resize::Fit(None))
+            else {
+                return;
+            };
+            if cache.len() >= PROTOCOL_CACHE_CAP {
+                cache.clear();
+            }
+            cache.insert(key, protocol);
         }
-    }
+
+        if let Some(protocol) = cache.get(&key) {
+            f.render_widget(Image::new(protocol), area);
+        }
+    });
 }

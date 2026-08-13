@@ -328,6 +328,9 @@ pub struct Config {
     /// Last.fm scrobbling configuration
     #[serde(default)]
     pub lastfm: crate::lastfm::LastfmConfig,
+    /// UI choices that persist across restarts (sort orders, volume, shuffle…).
+    #[serde(default)]
+    pub prefs: crate::app::Preferences,
     /// Tracks which client credentials / auth method was used.
     /// 0 = pre-migration (AAC-only, form-field auth, old client ID).
     /// 1 = tiddl credentials + HTTP Basic Auth (lossless-capable).

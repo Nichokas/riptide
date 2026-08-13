@@ -198,7 +198,9 @@ impl App {
     }
 
     pub fn focus_queue(&mut self) {
-        if self.now_playing.queue.is_empty() { return; }
+        // Nothing to focus when the panel is collapsed — the cursor would land
+        // in a pane the user cannot see.
+        if !self.queue_visible || self.now_playing.queue.is_empty() { return; }
         self.queue_focused = true;
         self.queue_cursor = self.now_playing.queue_index;
     }
@@ -326,7 +328,7 @@ mod tests {
         let (player_tx, _) = tokio::sync::mpsc::unbounded_channel();
         let (mpris_tx, _)  = tokio::sync::watch::channel(MprisState::default());
         let (lastfm_tx, _) = tokio::sync::mpsc::unbounded_channel();
-        App::new(api_tx, player_tx, mpris_tx, lastfm_tx)
+        App::new(api_tx, player_tx, mpris_tx, lastfm_tx, crate::app::Preferences::default())
     }
 
     // ── Shuffle ───────────────────────────────────────────────────────────────

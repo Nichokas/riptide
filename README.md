@@ -24,15 +24,17 @@ A terminal UI music player for Tidal, built with Rust.
 
 ## Features
 
-- Browse your Tidal library: favorites, artists, playlists, and albums
+- Browse your Tidal library: tracks, artists, playlists, and albums
 - Full-text search across tracks, artists, and playlists
 - Synchronized lyrics
-- Album art in the sidebar and album detail view (quality determined by terminal graphics protocol)
+- Album art in the now-playing bar and detail views (quality determined by terminal graphics protocol)
 - Artist pictures and biography
-- Queue management — add tracks, navigate to any position, remove entries, play from any point
+- Queue management — add tracks, navigate to any position, remove entries, play from any point; collapse it with `t` when you want the full width for browsing
 - Gapless playback via mpv
 - Audio quality indicator (Hi-Res, FLAC, MQA, AAC)
 - Animated waveform progress bar
+- Sort any library list by name, artist, or date added — your choice is remembered between sessions and shown in the list header
+- Volume, shuffle, and queue visibility persist across restarts
 
 ## Requirements
 
@@ -199,9 +201,38 @@ It is created automatically on first run. Example:
   "expires_at": "2025-01-01T00:00:00+00:00",
   "user_id": 12345678,
   "country_code": "US",
-  "session_id": "..."
+  "session_id": "...",
+  "prefs": {
+    "favorites_sort": "LastAdded",
+    "artists_sort": null,
+    "fav_albums_sort": "ByArtist",
+    "playlists_sort": null,
+    "volume": 80,
+    "shuffle": false,
+    "queue_visible": true
+  }
 }
 ```
+
+### Preferences
+
+The `prefs` block records UI choices so they survive a restart. It is written
+once when Riptide exits, and every key is optional — a config from an older
+version loads fine and picks up the defaults below.
+
+| Key                                                            | Values                                    | Default        |
+| -------------------------------------------------------------- | ----------------------------------------- | -------------- |
+| `favorites_sort`, `artists_sort`, `fav_albums_sort`, `playlists_sort` | `"Alphabetical"`, `"LastAdded"`, `"ByArtist"`, or `null` | `null` (A–Z) |
+| `volume`                                                        | `0`–`100`                                 | `100`          |
+| `shuffle`                                                       | `true` / `false`                          | `false`        |
+| `queue_visible`                                                 | `true` / `false`                          | `true`         |
+
+`null` for a sort means "never chosen", which sorts alphabetically. Note that
+`ByArtist` only applies to the Tracks and Albums tabs; the Artists and Playlists
+tabs offer name and date only.
+
+Because preferences are saved on exit, changes made during a session that ends
+in a crash are not kept.
 
 ### Using your own OAuth credentials
 
@@ -292,9 +323,12 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 | `n`         | Next track      |
 | `p`         | Previous track  |
 | `z`         | Toggle shuffle  |
+| `t`         | Show/hide queue |
 | `+ or =`    | Volume Up       |
 | `-`         | Volume Down     |
 | `Esc`       | Back/Go up      |
+
+These work everywhere, including while the queue is focused.
 
 ### Navigation
 
@@ -306,7 +340,7 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 | `a`     | Add to queue                     |
 | `f`     | Toggle favorite/follow/save      |
 | `g`     | Go to artist                     |
-| `s`     | Sort                             |
+| `s`     | Sort (opens on the current sort) |
 | `r`     | Start radio                      |
 | `c`     | Copy share link (song)           |
 | `C`     | Copy share link (album/playlist) |
@@ -321,30 +355,49 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 | `d`     | Remove track            |
 | `c`     | Copy share link (song)  |
 | `C`     | Copy share link (album) |
+| `g`     | Go to artist            |
 | `Enter` | Play track              |
-| `Esc`   | Close queue             |
+| `t`     | Show/hide queue         |
+| `Esc`   | Unfocus queue           |
+
+Hiding the queue with `t` also releases focus, and `→` won't focus it again
+while it's hidden.
 
 ### Search
 
-Open search with `/` → `search` or via command palette.
+Jump to the Search tab with `Tab`, or via the command palette.
 
-| Key         | Action       |
-| ----------- | ------------ |
-| `↑`         | Up           |
-| `↓`         | Down         |
-| `Tab`       | Next pane    |
-| `Shift+Tab` | Prev pane    |
-| `Enter`     | Select/Open  |
-| `Esc`       | Close search |
+The search box opens automatically when there are no results yet. Once you have
+results the tab shows them instead, so you can leave and come back without
+losing them — press `/` to start a new search.
+
+| Key         | Action                          |
+| ----------- | ------------------------------- |
+| `/`         | Open the search box             |
+| `↑`         | Up                              |
+| `↓`         | Down                            |
+| `← →`       | Switch pane (Tracks/Artists/Playlists) |
+| `Enter`     | Run the search, or open a result |
+| `Esc`       | Close the search box            |
+
+`Tab` and `Shift+Tab` change tabs as usual, even with the search box open.
+
+Note that `/` opens the search box on the Search tab, and the command palette
+everywhere else.
 
 ### Command Palette
 
-Open with `/` and type the start of a destination (Tab to autocomplete):
+Open with `/` (on any tab except Search) and type the start of a destination
+(Tab to autocomplete):
 
-- `favorites` — Go to Favorites
+- `home` — Go to Home
+- `favorites` — Go to Tracks
 - `artists` — Go to Artists
+- `albums` — Go to Albums
 - `playlists` — Go to Playlists
 - `search` — Open search
+
+The Tracks tab is still reached by typing `favorites`.
 
 ## Image Rendering
 

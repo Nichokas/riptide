@@ -140,7 +140,13 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Build app state and run
-    let mut app = App::new(api_req_tx, player_cmd_tx, mpris_state_tx, lastfm_cmd_tx);
+    let mut app = App::new(
+        api_req_tx,
+        player_cmd_tx,
+        mpris_state_tx,
+        lastfm_cmd_tx,
+        config.prefs.clone(),
+    );
     let result = events::run_app(
         &mut terminal,
         &mut app,
@@ -154,6 +160,15 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
+
+    // Persist UI choices on the way out — one write, rather than rewriting a
+    // file containing OAuth tokens on every volume keypress. A crash loses the
+    // session's preference changes, which is an acceptable trade for not
+    // touching the credential file continuously.
+    config.prefs = app.preferences();
+    if let Err(e) = api::auth::save_config(&config) {
+        tracing::error!("Failed to save preferences: {e}");
+    }
 
     // Dropping app closes the command channels, which causes both workers to exit
     // their loops. Joining ensures PlayerWorker reaches child.kill() before we return.
