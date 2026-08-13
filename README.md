@@ -5,11 +5,11 @@
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
-  - [Automated Install](#automated-install)
-  - [Manual Install](#manual-install)
-  - [Arch (AUR)](#arch-aur)
-  - [Build from Source](#build-from-source)
-  - [Nix](#nix)
+    - [Automated Install](#automated-install)
+    - [Manual Install](#manual-install)
+    - [Arch (AUR)](#arch-aur)
+    - [Build from Source](#build-from-source)
+    - [Nix](#nix)
 - [Setup](#setup)
 - [Configuration](#configuration)
 - [Last.fm Scrobbling](#lastfm-scrobbling)
@@ -20,7 +20,7 @@
 
 A terminal UI music player for Tidal, built with Rust.
 
-<img width="1920" height="1080" alt="Screenshot_2026-08-03_16 22 33" src="https://github.com/user-attachments/assets/96b5b536-5d5a-495c-abc3-72cc11e47e81" />
+![img_2.png](assets/riptide_screenshot.png)
 
 ## Features
 
@@ -29,11 +29,13 @@ A terminal UI music player for Tidal, built with Rust.
 - Synchronized lyrics
 - Album art in the now-playing bar and detail views (quality determined by terminal graphics protocol)
 - Artist pictures and biography
-- Queue management — add tracks, navigate to any position, remove entries, play from any point; collapse it with `t` when you want the full width for browsing
+- Queue management — add tracks, navigate to any position, remove entries, play from any point; collapse it with `t`
+  when you want the full width for browsing
 - Gapless playback via mpv
 - Audio quality indicator (Hi-Res, FLAC, MQA, AAC)
 - Animated waveform progress bar
-- Sort any library list by name, artist, or date added — your choice is remembered between sessions and shown in the list header
+- Sort any library list by name, artist, or date added — your choice is remembered between sessions and shown in the
+  list header
 - Volume, shuffle, and queue visibility persist across restarts
 
 ## Requirements
@@ -46,7 +48,7 @@ A terminal UI music player for Tidal, built with Rust.
 ### Installing dependecies
 
 | Platform              | Command                                        |
-| --------------------- | ---------------------------------------------- |
+|-----------------------|------------------------------------------------|
 | Linux (Debian/Ubuntu) | `sudo apt install mpv dbus libglib2.0-0 chafa` |
 | Linux (Arch)          | `sudo pacman -S mpv dbus glib2 chafa`          |
 | Linux (Fedora)        | `sudo dnf install mpv dbus glib2 chafa`        |
@@ -71,7 +73,8 @@ INSTALL_DIR=~/.local/bin curl -fsSL https://raw.githubusercontent.com/fezzik-the
 
 ### Manual Install
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/fezzik-the-giant/riptide/releases):
+Download the latest binary for your platform
+from [GitHub Releases](https://github.com/fezzik-the-giant/riptide/releases):
 
 ```bash
 # Linux x86_64
@@ -106,7 +109,11 @@ sha256sum -c SHA256SUMS
 ### Arch (AUR)
 
 > [!WARNING]
-> The AUR team has recently [disabled all pushes](https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/message/YPJ3FQYJTJXXY3RUXCYLMHUKHLIUNVFF/). As such, the current version on the AUR is behind by several releases. The current recommended installation method for all users is to use [the automated install script](#automated-install). If you previously installed Riptide from AUR, remove it with `paru/yay -R riptide` before using the automated installer.
+> The AUR team has
+recently [disabled all pushes](https://lists.archlinux.org/archives/list/aur-general@lists.archlinux.org/message/YPJ3FQYJTJXXY3RUXCYLMHUKHLIUNVFF/).
+As such, the current version on the AUR is behind by several releases. The current recommended installation method for
+all users is to use [the automated install script](#automated-install). If you previously installed Riptide from AUR,
+remove it with `paru/yay -R riptide` before using the automated installer.
 
 Riptide is available on the AUR and can be installed with:
 
@@ -180,14 +187,15 @@ Riptide uses Tidal's OAuth device-authorization flow. On first launch it will pr
 Waiting for authorization…
 ```
 
-Open the URL in a browser, log in with your Tidal account, and enter the code. Riptide will save your tokens to the config file and launch immediately. You will not need to authenticate again unless your refresh token expires.
+Open the URL in a browser, log in with your Tidal account, and enter the code. Riptide will save your tokens to the
+config file and launch immediately. You will not need to authenticate again unless your refresh token expires.
 
 ## Configuration
 
 The config file lives at:
 
 | Platform | Path                            |
-| -------- | ------------------------------- |
+|----------|---------------------------------|
 | Linux    | `~/.config/riptide/config.json` |
 
 It is created automatically on first run. Example:
@@ -216,27 +224,26 @@ It is created automatically on first run. Example:
 
 ### Preferences
 
-The `prefs` block records UI choices so they survive a restart. It is written
-once when Riptide exits, and every key is optional — a config from an older
-version loads fine and picks up the defaults below.
+The `prefs` block records UI choices so they survive a restart. It is written once when Riptide exits, and every key is
+optional — a config from an older version loads fine and picks up the defaults below.
 
-| Key                                                            | Values                                    | Default        |
-| -------------------------------------------------------------- | ----------------------------------------- | -------------- |
+| Key                                                                   | Values                                                   | Default      |
+|-----------------------------------------------------------------------|----------------------------------------------------------|--------------|
 | `favorites_sort`, `artists_sort`, `fav_albums_sort`, `playlists_sort` | `"Alphabetical"`, `"LastAdded"`, `"ByArtist"`, or `null` | `null` (A–Z) |
-| `volume`                                                        | `0`–`100`                                 | `100`          |
-| `shuffle`                                                       | `true` / `false`                          | `false`        |
-| `queue_visible`                                                 | `true` / `false`                          | `true`         |
+| `volume`                                                              | `0`–`100`                                                | `100`        |
+| `shuffle`                                                             | `true` / `false`                                         | `false`      |
+| `queue_visible`                                                       | `true` / `false`                                         | `true`       |
 
 `null` for a sort means "never chosen", which sorts alphabetically. Note that
-`ByArtist` only applies to the Tracks and Albums tabs; the Artists and Playlists
-tabs offer name and date only.
+`ByArtist` only applies to the Tracks and Albums tabs; the Artists and Playlists tabs offer name and date only.
 
-Because preferences are saved on exit, changes made during a session that ends
-in a crash are not kept.
+Because preferences are saved on exit, changes made during a session that ends in a crash are not kept.
 
 ### Using your own OAuth credentials
 
-Riptide ships with built-in fallback credentials (provided by the open-source [tidalapi](https://github.com/tamland/python-tidal) project). If those credentials are ever revoked you can substitute your own:
+Riptide ships with built-in fallback credentials (provided by the
+open-source [tidalapi](https://github.com/tamland/python-tidal) project). If those credentials are ever revoked you can
+substitute your own:
 
 1. Register a device-authorization client at [developer.tidal.com](https://developer.tidal.com)
 2. Add your credentials to `config.json`:
@@ -248,7 +255,8 @@ Riptide ships with built-in fallback credentials (provided by the open-source [t
 }
 ```
 
-3. Delete `access_token` and `refresh_token` from the file (or delete the file entirely) to trigger a fresh login with your credentials.
+3. Delete `access_token` and `refresh_token` from the file (or delete the file entirely) to trigger a fresh login with
+   your credentials.
 
 ## Last.fm Scrobbling
 
@@ -257,8 +265,9 @@ Riptide can automatically scrobble your plays to Last.fm. To enable scrobbling:
 ### Setup
 
 1. **Create a Last.fm account** (free at [last.fm](https://www.last.fm))
-2. **Register an API account** at [https://www.last.fm/api/account/create](https://www.last.fm/api/account/create) to get your API key and secret
-   1. You don't need to provide a description, callback URL, or application homepage to get your key.
+2. **Register an API account** at [https://www.last.fm/api/account/create](https://www.last.fm/api/account/create) to
+   get your API key and secret
+    1. You don't need to provide a description, callback URL, or application homepage to get your key.
 3. **Add credentials to your config** (`~/.config/riptide/config.json`):
    ```json
    "lastfm": {
@@ -302,9 +311,9 @@ You can customize when tracks are scrobbled by adding `min_seconds` and `min_per
 
 The actual threshold used is whichever is **less** between the two values. For example, with the settings above:
 
-- A 3-minute (180s) song: min(90s, 45s) = 45 seconds
-- A 2-minute (120s) song: min(60s, 45s) = 45 seconds
-- A 10-second song: min(5s, 45s) = 5 seconds (no minimum enforced for very short tracks)
+- A 3-minute (180s) song: min (90s, 45s) = 45 seconds
+- A 2-minute (120s) song: min (60s, 45s) = 45 seconds
+- A 10-second song: min (5s, 45s) = 5 seconds (no minimum enforced for very short tracks)
 
 ## Keybindings
 
@@ -313,7 +322,7 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 ### Global
 
 | Key         | Action          |
-| ----------- | --------------- |
+|-------------|-----------------|
 | `?`         | Show this help  |
 | `q`         | Quit            |
 | `/`         | Command palette |
@@ -333,7 +342,7 @@ These work everywhere, including while the queue is focused.
 ### Navigation
 
 | Key     | Action                           |
-| ------- | -------------------------------- |
+|---------|----------------------------------|
 | `↑`     | Up                               |
 | `↓`     | Down                             |
 | `Enter` | Select/Open                      |
@@ -349,7 +358,7 @@ These work everywhere, including while the queue is focused.
 ### Queue
 
 | Key     | Action                  |
-| ------- | ----------------------- |
+|---------|-------------------------|
 | `↑`     | Up                      |
 | `↓`     | Down                    |
 | `d`     | Remove track            |
@@ -360,35 +369,31 @@ These work everywhere, including while the queue is focused.
 | `t`     | Show/hide queue         |
 | `Esc`   | Unfocus queue           |
 
-Hiding the queue with `t` also releases focus, and `→` won't focus it again
-while it's hidden.
+Hiding the queue with `t` also releases focus, and `→` won't focus it again while it's hidden.
 
 ### Search
 
 Jump to the Search tab with `Tab`, or via the command palette.
 
-The search box opens automatically when there are no results yet. Once you have
-results the tab shows them instead, so you can leave and come back without
-losing them — press `/` to start a new search.
+The search box opens automatically when there are no results yet. Once you have results the tab shows them instead, so
+you can leave and come back without losing them — press `/` to start a new search.
 
-| Key         | Action                          |
-| ----------- | ------------------------------- |
-| `/`         | Open the search box             |
-| `↑`         | Up                              |
-| `↓`         | Down                            |
-| `← →`       | Switch pane (Tracks/Artists/Playlists) |
-| `Enter`     | Run the search, or open a result |
-| `Esc`       | Close the search box            |
+| Key     | Action                                 |
+|---------|----------------------------------------|
+| `/`     | Open the search box                    |
+| `↑`     | Up                                     |
+| `↓`     | Down                                   |
+| `← →`   | Switch pane (Tracks/Artists/Playlists) |
+| `Enter` | Run the search, or open a result       |
+| `Esc`   | Close the search box                   |
 
 `Tab` and `Shift+Tab` change tabs as usual, even with the search box open.
 
-Note that `/` opens the search box on the Search tab, and the command palette
-everywhere else.
+Note that `/` opens the search box on the Search tab, and the command palette everywhere else.
 
 ### Command Palette
 
-Open with `/` (on any tab except Search) and type the start of a destination
-(Tab to autocomplete):
+Open with `/` (on any tab except Search) and type the start of a destination (Tab to autocomplete):
 
 - `home` — Go to Home
 - `favorites` — Go to Tracks
@@ -404,17 +409,20 @@ The Tracks tab is still reached by typing `favorites`.
 Album art and artist pictures are rendered using the best available graphics protocol for your terminal:
 
 | Terminal                                   | Protocol       | Quality                   |
-| ------------------------------------------ | -------------- | ------------------------- |
+|--------------------------------------------|----------------|---------------------------|
 | [Kitty](https://sw.kovidgoyal.net/kitty/)  | Kitty graphics | Full color, pixel-perfect |
 | [foot](https://codeberg.org/dnkl/foot)     | Sixel          | Full color                |
 | [mintty](https://github.com/mintty/mintty) | Sixel          | Full color                |
 | Other terminals                            | Half-blocks    | Color approximation       |
 
-The terminal is automatically detected via the `TERM` and `COLORTERM` environment variables. If your terminal supports Kitty graphics, it will be used. If not, Riptide falls back to Sixel (if supported), and finally to half-block characters as a universal fallback.
+The terminal is automatically detected via the `TERM` and `COLORTERM` environment variables. If your terminal supports
+Kitty graphics, it will be used. If not, Riptide falls back to Sixel (if supported), and finally to half-block
+characters as a universal fallback.
 
 ## Logging
 
-Logs are written to `~/.local/share/riptide/riptide.log.<date>` and roll on a daily basis. By default, the logging level is set to `INFO` providing only errors and important events.
+Logs are written to `~/.local/share/riptide/riptide.log.<date>` and roll on a daily basis. By default, the logging level
+is set to `INFO` providing only errors and important events.
 
 To adjust logging verbosity for debugging, use the `RIPTIDE_LOG_LEVEL` environment variable:
 
