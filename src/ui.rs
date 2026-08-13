@@ -127,20 +127,6 @@ fn render_sidebar_art(f: &mut Frame, app: &App, area: Rect) {
                 .alignment(Alignment::Center),
             area,
         );
-    } else {
-        let ch = np.track.as_ref()
-            .and_then(|t| t.title.chars().next())
-            .map(|c| c.to_uppercase().to_string())
-            .unwrap_or_else(|| "♪".to_string());
-        let style = if np.track.is_some() {
-            Style::default().fg(Color::Black).bg(ACCENT).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(DIM)
-        };
-        f.render_widget(
-            Paragraph::new(ch).style(style).alignment(Alignment::Center),
-            area,
-        );
     }
 }
 
@@ -815,14 +801,6 @@ fn render_artist_art(f: &mut Frame, app: &App, detail: &crate::app::ArtistDetail
                 .alignment(Alignment::Center),
             inner,
         );
-    } else {
-        let ch: String = detail.artist.name.chars().next().unwrap_or('?').to_uppercase().collect();
-        f.render_widget(
-            Paragraph::new(ch)
-                .style(Style::default().fg(Color::Black).bg(ACCENT).add_modifier(Modifier::BOLD))
-                .alignment(Alignment::Center),
-            inner,
-        );
     }
 }
 
@@ -1349,14 +1327,6 @@ fn render_album_detail(f: &mut Frame, app: &App, detail: &crate::app::AlbumDetai
                 .alignment(Alignment::Center),
             art_inner,
         );
-    } else {
-        let ch: String = detail.album.title.chars().next().unwrap_or('?').to_uppercase().collect();
-        f.render_widget(
-            Paragraph::new(ch)
-                .style(Style::default().fg(Color::Black).bg(ACCENT).add_modifier(Modifier::BOLD))
-                .alignment(Alignment::Center),
-            art_inner,
-        );
     }
 
     // ── Album metadata ────────────────────────────────────────────────────────
@@ -1458,14 +1428,6 @@ fn render_playlist_detail(f: &mut Frame, app: &App, detail: &crate::app::Playlis
         f.render_widget(
             Paragraph::new(format!("{spinner}"))
                 .style(Style::default().fg(DIM))
-                .alignment(Alignment::Center),
-            art_inner,
-        );
-    } else {
-        let ch: String = detail.playlist.title.chars().next().unwrap_or('?').to_uppercase().collect();
-        f.render_widget(
-            Paragraph::new(ch)
-                .style(Style::default().fg(Color::Black).bg(ACCENT).add_modifier(Modifier::BOLD))
                 .alignment(Alignment::Center),
             art_inner,
         );
@@ -1771,7 +1733,16 @@ fn render_search_pane_artists(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::White)
             };
             let prefix = if selected { "▶ " } else { "  " };
-            ListItem::new(format!("{prefix}{}", a.name)).style(style)
+            let title_span = Span::styled(
+                format!("{prefix}{}", a.name),
+                style
+            );
+            let heart = if app.favorite_artist_ids.contains(&a.id) {
+                Span::raw(" ❤")
+            } else {
+                Span::raw("")
+            };
+            ListItem::new(Line::from(vec![title_span, heart]))
         })
         .collect();
 
