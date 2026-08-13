@@ -27,6 +27,7 @@ use crate::search::SearchState;
 /// startup availability check.
 pub struct UpdateActorHandles {
     pub check_tx: mpsc::UnboundedSender<Result<Option<String>, String>>,
+    pub checking_tx: mpsc::UnboundedSender<()>,
     pub result_tx: mpsc::UnboundedSender<Result<String, String>>,
     pub go_rx: mpsc::UnboundedReceiver<()>,
 }
@@ -69,6 +70,8 @@ pub struct App {
     pub update: UpdateState,
     /// Receives the update-check outcome (found tag / none / failed).
     pub update_rx: mpsc::UnboundedReceiver<Result<Option<String>, String>>,
+    /// Receives a signal that the background check has started (Script install).
+    pub checking_rx: mpsc::UnboundedReceiver<()>,
     /// Receives the result of a TUI-triggered update install.
     pub update_result_rx: mpsc::UnboundedReceiver<Result<String, String>>,
     /// Signals the update thread to start the install (user pressed Enter).
@@ -100,6 +103,7 @@ impl App {
         // (App::new is also used in tests, which must stay offline) — main()
         // takes the senders back and spawns the actor.
         let (update_check_tx, update_rx) = mpsc::unbounded_channel();
+        let (checking_tx, checking_rx) = mpsc::unbounded_channel();
         let (update_result_tx, update_result_rx) = mpsc::unbounded_channel();
         let (update_go_tx, update_go_rx) = mpsc::unbounded_channel();
 
@@ -141,11 +145,13 @@ impl App {
             help_scroll: 0,
             update: UpdateState::default(),
             update_rx,
+            checking_rx,
             update_result_rx,
             update_go_tx,
             update_cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             update_actor: Some(UpdateActorHandles {
                 check_tx: update_check_tx,
+                checking_tx,
                 result_tx: update_result_tx,
                 go_rx: update_go_rx,
             }),

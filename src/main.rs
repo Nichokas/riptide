@@ -36,13 +36,19 @@ fn lastfm_auth() -> Result<()> {
 
 fn setup_panic_hook() {
     let original = std::panic::take_hook();
+    let main_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = disable_raw_mode();
-        let _ = execute!(
-            std::io::stderr(),
-            LeaveAlternateScreen,
-            crossterm::cursor::Show,
-        );
+        // Only restore the terminal if the panic is on the main thread.
+        // Actor-thread panics are caught via `catch_unwind` and must not tear
+        // down the TUI's alternate screen/raw mode.
+        if std::thread::current().id() == main_thread {
+            let _ = disable_raw_mode();
+            let _ = execute!(
+                std::io::stderr(),
+                LeaveAlternateScreen,
+                crossterm::cursor::Show,
+            );
+        }
         original(info);
     }));
 }
@@ -147,22 +153,36 @@ fn main() -> Result<()> {
     // Build app state and run
     let mut app = App::new(api_req_tx, player_cmd_tx, mpris_state_tx, lastfm_cmd_tx);
 
+    // Reap any staged files left by a previous cancelled update.
+    update::cleanup_stale_artifacts();
+
     // Self-update actor: checks GitHub once (shortly after startup, so it
     // never delays the first frame), then stays alive to run a TUI-triggered
     // install. Skipped entirely for pacman/nix/cargo installs. Not started in
     // App::new so tests stay offline.
     if let Some(actor) = app.take_update_actor() {
-        if update::install_method() == update::InstallMethod::Script {
-            // Only Script installs ever check: flip the flag so the TUI shows
-            // the in-progress state until the result lands (cleared in App).
-            app.update.checking = true;
-            let cancel = app.update_cancel.clone();
-            std::thread::spawn(move || {
-                let mut go_rx = actor.go_rx;
-                let check_tx = actor.check_tx;
-                let result_tx = actor.result_tx;
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                let _ = check_tx.send(update::check_for_update());
+        let cancel = app.update_cancel.clone();
+        std::thread::spawn(move || {
+            let mut go_rx = actor.go_rx;
+            let check_tx = actor.check_tx;
+            let checking_tx = actor.checking_tx;
+            let result_tx = actor.result_tx;
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            // install_method is evaluated here, not on the main thread, so a
+            // stuck ALPM db (pacman -Syu) never blocks the first frame.
+            if update::install_method() != update::InstallMethod::Script {
+                tracing::debug!("self-update disabled for this install method");
+                // No availability check; checking stays false so `U` reports
+                // "Updates are handled by your package manager".
+                return;
+            }
+            let _ = checking_tx.send(());
+            let check_result = std::panic::catch_unwind(update::check_for_update_assuming_script);
+            let to_send = match check_result {
+                Ok(r) => r,
+                Err(_) => Err("update check panicked".to_string()),
+            };
+            let _ = check_tx.send(to_send);
                 // Loop to handle multiple install attempts (e.g. retry after failure).
                 while let Some(()) = go_rx.blocking_recv() {
                     // Catch panics so the TUI never hangs in Working. Reset the
@@ -184,11 +204,6 @@ fn main() -> Result<()> {
                 }
                 tracing::debug!("update actor: TUI closed or channel dropped");
             });
-        }
-        // Package-managed installs (pacman/Nix/cargo) never self-update; the
-        // actor is not spawned and the handles simply drop here. The update
-        // dialog is unreachable for them (it requires update.checking or a
-        // found tag), so the go channel can never be written anyway.
     }
 
     let result = events::run_app(

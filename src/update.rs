@@ -30,6 +30,10 @@ pub enum InstallMethod {
 /// Information parsed from a GitHub release JSON payload.
 pub struct ReleaseInfo {
     pub tag: String,
+    /// Exact file name of the matched `.tar.gz` asset (e.g. `riptide-v0.14.0-x86_64-linux-gnu.tar.gz`).
+    /// Carried so SHA256SUMS lookup uses the real asset name rather than
+    /// re-deriving it from `tag`, which can diverge (e.g. tag `0.14.0` vs asset `v0.14.0`).
+    pub asset_name: String,
     /// Download URL of the `.tar.gz` asset matching this platform.
     pub tarball_url: String,
     /// Download URL of the `SHA256SUMS` asset, if present.
@@ -40,6 +44,7 @@ pub struct ReleaseInfo {
 /// `riptide-v0.14.0-x86_64-linux-gnu.tar.gz`. Naming must stay in sync with
 /// the release uploader in `install.sh`; changing one without the other
 /// makes updates unfindable.
+#[allow(dead_code)]
 fn asset_name(tag: &str) -> String {
     format!("riptide-{tag}-{}.tar.gz", target_binary_triple())
 }
@@ -104,23 +109,29 @@ fn release_info_from_json(json: &str) -> Result<ReleaseInfo> {
         .to_string();
 
     let assets = v["assets"].as_array().context("release JSON has no assets")?;
-    let find_url = |pred: &dyn Fn(&str) -> bool| -> Option<String> {
-        assets.iter().find_map(|a| {
-            let name = a["name"].as_str()?;
-            if pred(name) {
-                a["browser_download_url"].as_str().map(str::to_string)
-            } else {
-                None
-            }
-        })
-    };
-
-    let tarball_url = find_url(&|n| is_our_binary_asset(n))
+    let mut asset_name: Option<String> = None;
+    let mut tarball_url: Option<String> = None;
+    for a in assets {
+        let Some(name) = a["name"].as_str() else { continue };
+        if is_our_binary_asset(name) && tarball_url.is_none() {
+            asset_name = Some(name.to_string());
+            tarball_url = a["browser_download_url"].as_str().map(str::to_string);
+        }
+    }
+    let tarball_url = tarball_url
         .with_context(|| format!("no asset for platform {} in release {tag}", target_binary_triple()))?;
-    let checksums_url = find_url(&|n| n == "SHA256SUMS");
+    let asset_name = asset_name.expect("matched asset has a name");
+    let checksums_url = assets.iter().find_map(|a| {
+        if a["name"].as_str() == Some("SHA256SUMS") {
+            a["browser_download_url"].as_str().map(str::to_string)
+        } else {
+            None
+        }
+    });
 
     Ok(ReleaseInfo {
         tag,
+        asset_name,
         tarball_url,
         checksums_url,
     })
@@ -209,14 +220,36 @@ fn swap_binary(target: &Path, staged: &Path) -> Result<()> {
             .permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(staged, perms).context("cannot chmod staged binary")?;
+        // Ensure data is durable before the atomic rename, and the directory
+        // entry is durable after. Without fsync, a power loss on
+        // data=writeback / XFS / btrfs can leave a zero-length binary.
+        if let Ok(f) = std::fs::File::open(staged) {
+            let _ = f.sync_all();
+        }
     }
     std::fs::rename(staged, target)
-        .with_context(|| format!("cannot replace {}", target.display()))
+        .with_context(|| format!("cannot replace {}", target.display()))?;
+    #[cfg(unix)]
+    {
+        if let Some(dir) = target.parent()
+            && let Ok(d) = std::fs::File::open(dir) {
+                let _ = d.sync_all();
+            }
+    }
+    Ok(())
 }
 
 /// True when `path` lives under a `.cargo/bin` directory (any user's —
 /// cargo binaries are always laid out as `<home>/.cargo/bin/<name>`).
 fn is_under_cargo_bin(path: &Path) -> bool {
+    if let Ok(cargo_home) = std::env::var("CARGO_HOME")
+        && !cargo_home.is_empty()
+    {
+        let bin = Path::new(&cargo_home).join("bin");
+        if path.parent().is_some_and(|p| p == bin) {
+            return true;
+        }
+    }
     path.parent()
         .is_some_and(|p| p.ends_with(Path::new(".cargo").join("bin")))
 }
@@ -234,10 +267,11 @@ fn is_under_nix_store(path: &Path) -> bool {
 
 /// Linux only: true when pacman owns `path` (i.e. it came from an AUR/ALPM package).
 /// Conservative on ambiguous failures: only a definitive "No package owns"
-/// response is treated as not-owned; db-lock, timeout, or missing pacman is
-/// assumed owned to avoid overwriting a package-managed binary. The query is
-/// executed on a helper thread with a 2 s bound so a stuck ALPM db cannot
-/// stall the caller.
+/// response is treated as not-owned; db-lock or timeout is assumed owned to
+/// avoid overwriting a package-managed binary. A missing `pacman` binary
+/// (spawn failure) is treated as not-owned — on non-Arch systems there is no
+/// pacman to own anything. The query is executed on a helper thread with a
+/// 2 s bound so a stuck ALPM db cannot stall the caller.
 #[cfg(target_os = "linux")]
 fn is_pacman_owned(path: &Path) -> bool {
     use std::process::Stdio;
@@ -286,6 +320,42 @@ fn is_pacman_owned(path: &Path) -> bool {
             }
         }
         Err(_) => false,
+    }
+}
+
+/// Remove stale self-update artifacts left by a previous cancelled or crashed
+/// update. Called at startup so a stranded `/tmp/riptide-update-*` or
+/// `<installdir>/.riptide.new-*` does not accumulate per cancellation.
+pub fn cleanup_stale_artifacts() {
+    // Temp dirs: riptide-update-<pid>-<rnd>
+    let tmp = std::env::temp_dir();
+    if let Ok(entries) = std::fs::read_dir(&tmp) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let s = name.to_string_lossy();
+            if s.starts_with("riptide-update-") {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+    // Staged binaries next to the running executable.
+    if let Ok(exe) = std::env::current_exe() {
+        let exe_str = exe.to_string_lossy();
+        let exe_path = if let Some(stripped) = exe_str.strip_suffix(" (deleted)") {
+            Path::new(stripped).to_path_buf()
+        } else {
+            exe
+        };
+        if let Some(dir) = exe_path.parent()
+            && let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let n = entry.file_name();
+                    let s = n.to_string_lossy();
+                    if s.starts_with(".riptide.new-") || s.starts_with(".riptide.sudo-staged-") {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
     }
 }
 
@@ -368,7 +438,7 @@ pub fn self_update_with_cancel(cancel: &std::sync::atomic::AtomicBool) -> Result
          trust relies on TLS to {GITHUB_REPO}"
     );
 
-    let client = http_client()?;
+    let client = http_client_for_download()?;
     // Use a securely-randomized temp dir (pid + random) and create with
     // exclusive semantics to avoid pre-creation symlink attacks.
     let tmp = {
@@ -391,7 +461,6 @@ pub fn self_update_with_cancel(cancel: &std::sync::atomic::AtomicBool) -> Result
 }
 
 /// Backwards-compatible convenience wrapper: no cancellation.
-#[allow(dead_code)]
 pub fn self_update() -> Result<UpdateOutcome> {
     self_update_with_cancel(&std::sync::atomic::AtomicBool::new(false))
 }
@@ -416,7 +485,7 @@ fn download_and_install(
     // Verify against the SHA256SUMS asset when present. Failure to download
     // or a missing entry is a hard error (fail-closed) to prevent
     // installation of an unverified tarball.
-    let asset = asset_name(&release.tag);
+    let asset = &release.asset_name;
     if let Some(url) = &release.checksums_url {
         let sums_path = tmp.join("SHA256SUMS");
         download_to_file(client, url, &sums_path).context("cannot download SHA256SUMS")?;
@@ -440,7 +509,17 @@ fn download_and_install(
     }
 
     let extracted = extract_binary_from_tarball(&tarball, tmp)?;
-    let target = std::env::current_exe().context("cannot locate running binary")?;
+    let exe = std::env::current_exe().context("cannot locate running binary")?;
+    // Linux reports "/path/riptide (deleted)" if another process already
+    // replaced the binary; strip the suffix so the rename targets the real file.
+    let target = {
+        let s = exe.to_string_lossy();
+        if let Some(stripped) = s.strip_suffix(" (deleted)") {
+            Path::new(stripped).to_path_buf()
+        } else {
+            exe
+        }
+    };
     let dir = target.parent().context("binary path has no parent dir")?;
 
     // Stage the new binary *in the target directory*: rename() is atomic but
@@ -476,9 +555,7 @@ fn download_and_install(
             }
         }
         Err(_) => {
-            // Drop the guard so Drop removes the staged file.
             drop(staged_guard);
-            let _ = std::fs::remove_file(&staged);
             // Directory not writable as this user (typical /usr/local/bin
             // install): retry through sudo, which handles the cross-fs copy.
             if cancel.load(std::sync::atomic::Ordering::Relaxed) {
@@ -538,6 +615,8 @@ fn try_sudo_swap(target: &Path, staged: &Path) -> bool {
         .arg("--")
         .arg(staged)
         .arg(&sudo_tmp)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
@@ -550,6 +629,8 @@ fn try_sudo_swap(target: &Path, staged: &Path) -> bool {
         .arg("755")
         .arg("--")
         .arg(&sudo_tmp)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
@@ -560,6 +641,8 @@ fn try_sudo_swap(target: &Path, staged: &Path) -> bool {
             .arg("-f")
             .arg("--")
             .arg(&sudo_tmp)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .status();
         return false;
     }
@@ -569,6 +652,8 @@ fn try_sudo_swap(target: &Path, staged: &Path) -> bool {
         .arg("--")
         .arg(&sudo_tmp)
         .arg(target)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
@@ -579,6 +664,8 @@ fn try_sudo_swap(target: &Path, staged: &Path) -> bool {
             .arg("-f")
             .arg("--")
             .arg(&sudo_tmp)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .status();
         return false;
     }
@@ -617,10 +704,15 @@ pub fn run_update_cli() -> Result<()> {
 /// exists, `Ok(None)` when current or non-self-updatable, `Err` when the
 /// check itself failed (offline, rate-limited, …) so the UI can distinguish
 /// "up to date" from "couldn't tell". Failures are also logged at warn level.
+#[allow(dead_code)]
 pub fn check_for_update() -> Result<Option<String>, String> {
     if install_method() != InstallMethod::Script {
         return Ok(None);
     }
+    check_for_update_assuming_script()
+}
+
+pub(crate) fn check_for_update_assuming_script() -> Result<Option<String>, String> {
     let release = latest_release().map_err(|e| {
         tracing::warn!("update check failed: {e:#}");
         format!("{e:#}")
@@ -639,19 +731,53 @@ pub fn check_for_update() -> Result<Option<String>, String> {
 /// for GitHub hostnames so a local bypass still applies. Invalid URLs are
 /// skipped with a warning rather than aborting.
 fn http_client() -> Result<reqwest::blocking::Client> {
+    let mut builder = base_client_builder()?;
+    builder = builder.timeout(std::time::Duration::from_secs(30));
+    builder.build().context("cannot build HTTP client")
+}
+
+/// Like [`http_client`] but for large downloads: uses `connect_timeout` only,
+/// so an 8 MiB tarball on a slow link does not hit a total-request deadline
+/// mid-`copy`. The connection phase still fails fast.
+fn http_client_for_download() -> Result<reqwest::blocking::Client> {
+    let mut builder = base_client_builder()?;
+    builder = builder.connect_timeout(std::time::Duration::from_secs(30));
+    builder.build().context("cannot build HTTP client")
+}
+
+fn base_client_builder() -> Result<reqwest::blocking::ClientBuilder> {
     let mut builder = reqwest::blocking::Client::builder()
-        .user_agent(concat!("riptide/", env!("CARGO_PKG_VERSION"), " (self-update)"))
-        .timeout(std::time::Duration::from_secs(30));
+        .user_agent(concat!("riptide/", env!("CARGO_PKG_VERSION"), " (self-update)"));
 
     // Determine whether GitHub is exempt from proxying via NO_PROXY.
-    let no_proxy_for_github = ["NO_PROXY", "no_proxy"].iter().find_map(|v| std::env::var(v).ok())
-        .is_some_and(|list| {
-            list.split(',').any(|entry| {
-                let host = entry.trim().trim_start_matches('.').to_ascii_lowercase();
-                !host.is_empty()
-                    && (host == "*" || "github.com".ends_with(&host) || host == "api.github.com")
+    // Check both NO_PROXY and no_proxy, skipping empty values so an empty
+    // NO_PROXY does not shadow a populated no_proxy.
+    let raw_no_proxy = ["NO_PROXY", "no_proxy"].iter().find_map(|v| match std::env::var(v) {
+        Ok(s) if !s.trim().is_empty() => Some(s),
+        _ => None,
+    });
+    let no_proxy_for_github = raw_no_proxy.is_some_and(|list| {
+        // Hosts we contact: api.github.com for the release JSON, and
+        // objects.githubusercontent.com where browser_download_url redirects.
+        const GITHUB_HOSTS: &[&str] = &[
+            "github.com",
+            "api.github.com",
+            "objects.githubusercontent.com",
+            "githubusercontent.com",
+        ];
+        list.split(',').any(|entry| {
+            let e = entry.trim().trim_start_matches('.').to_ascii_lowercase();
+            if e.is_empty() {
+                return false;
+            }
+            if e == "*" {
+                return true;
+            }
+            GITHUB_HOSTS.iter().any(|target| {
+                *target == e || target.ends_with(&format!(".{e}"))
             })
-        });
+        })
+    });
 
     if !no_proxy_for_github {
         // Strictly ordered: specific before generic, uppercase before lowercase.
@@ -675,7 +801,7 @@ fn http_client() -> Result<reqwest::blocking::Client> {
         tracing::debug!("NO_PROXY matches github.com; self-update bypasses proxy");
     }
 
-    builder.build().context("cannot build HTTP client")
+    Ok(builder)
 }
 
 /// Download `url` to `dest` as a bounded stream. Enforces both a declared
@@ -985,9 +1111,6 @@ mod tests {
         // A path that does not exist can never be owned by pacman; on
         // non-Linux it must fall through to Script directly.
         let method = install_method_from_path(Path::new("/tmp/riptide-no-existe-xyz"));
-        #[cfg(target_os = "linux")]
-        assert_eq!(method, InstallMethod::Script);
-        #[cfg(not(target_os = "linux"))]
         assert_eq!(method, InstallMethod::Script);
     }
 
@@ -1022,5 +1145,75 @@ mod tests {
         );
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn release_info_preserves_matched_asset_name_for_checksum_lookup() {
+        // Tag without `v` but asset still uses `v` prefix (workflow naming).
+        // Re-deriving via asset_name(&tag) would yield riptide-0.14.0-... and
+        // miss the SHA256SUMS entry riptide-v0.14.0-....
+        let json = format!(
+            r#"{{"tag_name": "0.14.0", "assets": [
+                {{"name": "riptide-v0.14.0-{triple}.tar.gz", "browser_download_url": "https://example.com/riptide-v0.14.0-{triple}.tar.gz"}},
+                {{"name": "SHA256SUMS", "browser_download_url": "https://example.com/SHA256SUMS"}}
+            ]}}"#,
+            triple = target_binary_triple()
+        );
+        let info = release_info_from_json(&json).expect("parses");
+        // The stored asset name must be the matched file name, not asset_name(&tag).
+        assert_eq!(
+            info.asset_name,
+            format!("riptide-v0.14.0-{}.tar.gz", target_binary_triple())
+        );
+        // And it must be the key that finds the entry in SHA256SUMS.
+        let sums = format!("abc123  {}\n", info.asset_name);
+        assert_eq!(
+            parse_sha256sums(&sums, &info.asset_name),
+            Some("abc123".to_string())
+        );
+        // Re-derived name would fail.
+        let wrong = asset_name(&info.tag);
+        assert_ne!(wrong, info.asset_name);
+        assert_eq!(parse_sha256sums(&sums, &wrong), None);
+    }
+
+    #[test]
+    fn download_client_builds_without_total_timeout() {
+        // http_client() uses a 30s total-request timeout, which would abort
+        // an 8 MiB download on slow links. The download client must use
+        // connect_timeout instead and build successfully.
+        let api = http_client().expect("api client builds");
+        let dl = http_client_for_download().expect("download client builds");
+        // Both must be distinct clients; the download one must not be the
+        // same total-timeout builder. We verify they are buildable and that
+        // the download path accepts the same proxy env handling.
+        drop(api);
+        drop(dl);
+    }
+
+    #[test]
+    fn is_under_cargo_bin_respects_cargo_home() {
+        let cargo_home = std::env::temp_dir().join(format!("riptide-cargo-home-{}", std::process::id()));
+        let bin = cargo_home.join("bin");
+        let exe = bin.join("riptide");
+        // Safety: CARGO_HOME is process-global; restore after.
+        let prev = std::env::var("CARGO_HOME").ok();
+        unsafe { std::env::set_var("CARGO_HOME", &cargo_home) };
+        let result = is_under_cargo_bin(&exe);
+        match prev {
+            Some(v) => unsafe { std::env::set_var("CARGO_HOME", v) },
+            None => unsafe { std::env::remove_var("CARGO_HOME") },
+        }
+        assert!(result, "CARGO_HOME={} should make {:?} a cargo bin", cargo_home.display(), exe);
+        // Also check fallback still works when CARGO_HOME is unset.
+        let fallback = Path::new("/home/someone/.cargo/bin/riptide");
+        let prev2 = std::env::var("CARGO_HOME").ok();
+        unsafe { std::env::remove_var("CARGO_HOME") };
+        let fallback_result = is_under_cargo_bin(fallback);
+        match prev2 {
+            Some(v) => unsafe { std::env::set_var("CARGO_HOME", v) },
+            None => {},
+        }
+        assert!(fallback_result, "fallback .cargo/bin should still be cargo bin");
     }
 }

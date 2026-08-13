@@ -360,7 +360,12 @@ fn render_update_modal(f: &mut Frame, app: &App, area: Rect) {
     let box_h = 7u16.min(area.height.saturating_sub(4));
     let x = area.x + area.width.saturating_sub(box_w) / 2;
     let y = area.y + area.height.saturating_sub(box_h) / 2;
-    let overlay = Rect::new(x, y, box_w.min(area.width), box_h.min(area.height));
+    let overlay = Rect::new(
+        x.min(area.right().saturating_sub(box_w)),
+        y.min(area.bottom().saturating_sub(box_h)),
+        box_w.min(area.width),
+        box_h.min(area.height),
+    );
 
     f.render_widget(Clear, overlay);
     let block = Block::default()
@@ -2008,14 +2013,15 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let context_hint = get_context_hint(app);
-    // When an update is pending, append a hint — but hide it while the
-    // Done modal is showing (already installed) to avoid stale hint.
+    // When an update is pending, prepend a hint — appending would be clipped
+    // on narrow terminals (80 cols → left cell 60 wide, context_hint already
+    // ~57 chars). Prepending ensures "↑ vX.Y.Z — U" survives truncation.
     let show_update_hint = app.update.available.is_some()
         && app.update.status != crate::app::UpdateStatus::Done;
     let context_span = if show_update_hint {
         let tag = app.update.available.as_deref().unwrap_or_default();
         Span::styled(
-            format!("{}  ↑ {} — U ", context_hint, tag),
+            format!("↑ {tag} — U  {context_hint}"),
             Style::default().fg(DIM),
         )
     } else {
