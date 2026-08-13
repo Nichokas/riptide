@@ -54,6 +54,7 @@ pub struct App {
 
     pub help_active: bool,
     pub help_scroll: u16,
+    pub help_query: String,
 
     pub tick: u64,
     /// (message, level, Instant when set) — cleared automatically after ~5 s
@@ -100,6 +101,7 @@ impl App {
             queue_viewport: ListViewport::default(),
             help_active: false,
             help_scroll: 0,
+            help_query: String::new(),
             tick:   0,
             status: None,
             api_tx,

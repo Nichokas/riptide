@@ -409,6 +409,105 @@ fn render_artist_selection_modal(f: &mut Frame, app: &App, area: Rect) {
 
 // ── Help modal ────────────────────────────────────────────────────────────────
 
+/// Case-insensitive substring highlight; ASCII fast path, unicode generic via
+/// per-char `to_lowercase` for expansions (e.g. İ → i+̇).
+fn highlight_spans(text: &str, query: &str, base: Style, hl: Style) -> Vec<Span<'static>> {
+    let q = query.trim();
+    if q.is_empty() {
+        return vec![Span::styled(text.to_owned(), base)];
+    }
+    let q_lower: Vec<char> = q.to_lowercase().chars().collect();
+    if q_lower.is_empty() {
+        return vec![Span::styled(text.to_owned(), base)];
+    }
+
+    if text.is_ascii() && q.is_ascii() {
+        let t_lower = text.to_ascii_lowercase();
+        let q_lc = q.to_ascii_lowercase();
+        let mut spans: Vec<Span> = Vec::new();
+        let mut cursor = 0usize;
+        let mut search_start = 0usize;
+        let mut found = false;
+        while let Some(rel) = t_lower[search_start..].find(&q_lc) {
+            let start = search_start + rel;
+            let end = start + q_lc.len();
+            if cursor < start {
+                spans.push(Span::styled(text[cursor..start].to_owned(), base));
+            }
+            spans.push(Span::styled(text[start..end].to_owned(), hl));
+            cursor = end;
+            search_start = end;
+            found = true;
+            if search_start >= t_lower.len() {
+                break;
+            }
+        }
+        if !found {
+            return vec![Span::styled(text.to_owned(), base)];
+        }
+        if cursor < text.len() {
+            spans.push(Span::styled(text[cursor..].to_owned(), base));
+        }
+        return spans;
+    }
+
+    let t_chars: Vec<char> = text.chars().collect();
+    let mut t_lower: Vec<char> = Vec::new();
+    let mut lower_to_orig: Vec<usize> = Vec::new();
+    for (orig_idx, &c) in t_chars.iter().enumerate() {
+        for lc in c.to_lowercase() {
+            t_lower.push(lc);
+            lower_to_orig.push(orig_idx);
+        }
+    }
+    if q_lower.len() > t_lower.len() {
+        return vec![Span::styled(text.to_owned(), base)];
+    }
+    let mut byte_offsets: Vec<usize> = Vec::with_capacity(t_chars.len() + 1);
+    let mut off = 0usize;
+    for c in &t_chars {
+        byte_offsets.push(off);
+        off += c.len_utf8();
+    }
+    byte_offsets.push(off);
+
+    let mut spans: Vec<Span> = Vec::new();
+    let mut last_orig = 0usize;
+    let mut i = 0usize;
+    let mut found = false;
+    while i + q_lower.len() <= t_lower.len() {
+        if t_lower[i..i + q_lower.len()] == q_lower[..] {
+            let orig_start = lower_to_orig[i];
+            let last_lower = i + q_lower.len() - 1;
+            let orig_end = lower_to_orig[last_lower] + 1;
+            let start_byte = byte_offsets[orig_start];
+            let end_byte = byte_offsets[orig_end];
+            if last_orig < orig_start {
+                spans.push(Span::styled(
+                    text[byte_offsets[last_orig]..start_byte].to_owned(),
+                    base,
+                ));
+            }
+            spans.push(Span::styled(text[start_byte..end_byte].to_owned(), hl));
+            last_orig = orig_end;
+            i += q_lower.len();
+            found = true;
+        } else {
+            i += 1;
+        }
+    }
+    if !found {
+        return vec![Span::styled(text.to_owned(), base)];
+    }
+    if last_orig < t_chars.len() {
+        spans.push(Span::styled(
+            text[byte_offsets[last_orig]..].to_owned(),
+            base,
+        ));
+    }
+    spans
+}
+
 fn render_help_modal(f: &mut Frame, app: &App, area: Rect) {
     // Fixed size modal, well clear of the now-playing bar (9 lines at bottom)
     let box_w = 50u16.min(area.width.saturating_sub(4));
@@ -435,46 +534,105 @@ fn render_help_modal(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    // Collect all keybind groups
-    let groups = vec![
-        KeybindGroup::global(),
-        KeybindGroup::navigation(),
-        KeybindGroup::queue(),
-        KeybindGroup::search(),
-        KeybindGroup::command(),
-    ];
+    let query = &app.help_query;
+    let filtered = KeybindGroup::filtered_groups(query);
+    let total_binds = KeybindGroup::total_bind_count();
+    let filtered_binds: usize = filtered.iter().map(|g| g.binds.len()).sum();
+    let hl_style = Style::default().bg(SELECT_BG).fg(Color::White).add_modifier(Modifier::BOLD);
+    let has_search = inner.height >= 3 && inner.width >= 20;
 
-    // Build lines for rendering
-    let mut lines: Vec<Line> = Vec::new();
-    for group in groups {
-        // Group header
-        lines.push(Line::from(Span::styled(
-            group.title,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        )));
+    let (content_y, content_h) = if has_search {
+        let cursor = if (app.tick / 30) % 2 == 0 { "█" } else { " " };
+        let cursor_style = Style::default().fg(Color::White);
+        let placeholder = "type to filter…";
+        let is_empty = query.is_empty();
 
-        // Keybinds
-        for keybind in group.binds {
-            let line = Line::from(vec![
-                Span::styled(
-                    format!("  {:<12}", keybind.key),
-                    Style::default().fg(ACCENT),
-                ),
-                Span::raw(keybind.action),
-            ]);
-            lines.push(line);
+        let mut left_spans: Vec<Span> = Vec::new();
+        left_spans.push(Span::styled("⌕ ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)));
+        if is_empty {
+            left_spans.push(Span::styled(placeholder.to_owned(), Style::default().fg(DIM)));
+            left_spans.push(Span::styled(cursor.to_owned(), cursor_style));
+        } else {
+            left_spans.push(Span::styled(query.clone(), Style::default().fg(Color::White)));
+            left_spans.push(Span::styled(cursor.to_owned(), cursor_style));
         }
 
-        // Space between groups
-        lines.push(Line::from(""));
+        let count_str = format!(" {}/{} ", filtered_binds, total_binds);
+        let esc_hint = if is_empty { "Esc to close" } else { "Esc to clear" };
+        let mut right_spans: Vec<Span> = Vec::new();
+        right_spans.push(Span::styled(count_str.clone(), Style::default().fg(DIM)));
+        right_spans.push(Span::styled(esc_hint.to_owned(), Style::default().fg(DIM)));
+
+        let left_w: usize = 2 + if is_empty { placeholder.chars().count() + 1 } else { query.chars().count() + 1 };
+        let right_w: usize = count_str.chars().count() + esc_hint.chars().count() + 1;
+        let mid_w = (inner.width as usize).saturating_sub(left_w + right_w + 2);
+        let mut line_spans = left_spans;
+        if mid_w > 0 {
+            line_spans.push(Span::raw(" ".repeat(mid_w)));
+        } else {
+            line_spans.push(Span::raw(" "));
+        }
+        line_spans.extend(right_spans);
+
+        f.render_widget(
+            Paragraph::new(Line::from(line_spans)),
+            Rect::new(inner.x, inner.y, inner.width, 1),
+        );
+
+        f.render_widget(
+            Paragraph::new("─".repeat(inner.width as usize)).style(Style::default().fg(DIM)),
+            Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        );
+
+        (inner.y + 2, inner.height.saturating_sub(2))
+    } else {
+        (inner.y, inner.height)
+    };
+
+    if content_h == 0 {
+        return;
     }
 
-    // Render with scrolling
-    let start = app.help_scroll as usize;
-    let mut y = inner.y;
+    let mut lines: Vec<Line> = Vec::new();
+    if filtered.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!(" no matches for \"{}\"", query),
+            Style::default().fg(DIM),
+        )));
+    } else {
+        for group in &filtered {
+            let header_base = Style::default().fg(ACCENT).add_modifier(Modifier::BOLD);
+            let header_spans = highlight_spans(group.title, query, header_base, hl_style);
+            lines.push(Line::from(header_spans));
+
+            for keybind in &group.binds {
+                let key_base = Style::default().fg(ACCENT);
+                let action_base = Style::default().fg(Color::White);
+                let mut spans: Vec<Span> = Vec::new();
+                spans.push(Span::raw("  "));
+                let key_spans = highlight_spans(keybind.key, query, key_base, hl_style);
+                spans.extend(key_spans);
+                let key_w = keybind.key.chars().count();
+                let pad = 12usize.saturating_sub(key_w);
+                if pad > 0 {
+                    spans.push(Span::raw(" ".repeat(pad)));
+                }
+                let action_spans = highlight_spans(keybind.action, query, action_base, hl_style);
+                spans.extend(action_spans);
+                lines.push(Line::from(spans));
+            }
+
+            lines.push(Line::from(""));
+        }
+    }
+
+    // Clamp so small terminals reach the bottom without excess blank on large ones.
+    let max_start = lines.len().saturating_sub(content_h as usize);
+    let start = (app.help_scroll as usize).min(max_start);
+    let mut y = content_y;
 
     for line in lines.iter().skip(start) {
-        if y >= inner.y + inner.height {
+        if y >= content_y + content_h {
             break;
         }
         f.render_widget(
@@ -484,14 +642,13 @@ fn render_help_modal(f: &mut Frame, app: &App, area: Rect) {
         y += 1;
     }
 
-    // Render scroll hint
-    if lines.len() as u16 > app.help_scroll + inner.height {
+    if (lines.len() as usize) > start + content_h as usize {
         let hint = " ↓ more ";
         f.render_widget(
             Paragraph::new(hint)
                 .style(Style::default().fg(DIM))
                 .alignment(Alignment::Right),
-            Rect::new(inner.x, inner.y + inner.height.saturating_sub(1), inner.width, 1),
+            Rect::new(inner.x, content_y + content_h.saturating_sub(1), inner.width, 1),
         );
     }
 }
@@ -1967,7 +2124,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         cols[0],
     );
 
-    let help_span = Span::styled("? show keybinds", Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+    let help_span = Span::styled("h/? show keybinds", Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
     f.render_widget(
         Paragraph::new(Line::from(help_span)).alignment(Alignment::Right),
         cols[1],

@@ -148,6 +148,29 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('?') => {
             app.help_active = true;
             app.help_scroll = 0;
+            app.help_query.clear();
+        }
+        KeyCode::Char('h') | KeyCode::Char('H') => {
+            // Alias for help on top-level tabs that don't use 'h' for navigation.
+            // Guard to avoid hijacking 'h' (left) in detail views and Home/Search.
+            let can_open_help = app.view_stack.is_empty()
+                && !app.queue_focused
+                && !app.command.active
+                && !app.sort_palette.active
+                && !app.artist_selection.active
+                && !app.search.active
+                && !app.search.modal_open
+                && app.current_tab != Tab::Home
+                && app.current_tab != Tab::Search;
+            if can_open_help {
+                app.help_active = true;
+                app.help_scroll = 0;
+                app.help_query.clear();
+                return;
+            } else {
+                handle_navigation(app, key);
+                return;
+            }
         }
         KeyCode::Char('/') => {
             app.command.active = true;
@@ -303,28 +326,56 @@ fn handle_sort_palette_input(app: &mut App, key: KeyEvent) {
 fn handle_help_input(app: &mut App, key: KeyEvent) {
     use crate::app::KeybindGroup;
 
-    let max_scroll = {
-        let total_lines = KeybindGroup::total_help_lines() as i16;
-        let visible_lines = 22i16; // Modal inner height (24 - 2 for borders) in render_help_modal
-        (total_lines - visible_lines).max(0) as u16
+    // inner 22 - search(1) - divider(1) = 20; max_scroll is clamped again in
+    // render so small terminals can reach the bottom (allows slight overscroll
+    // on large screens).
+    const HELP_VISIBLE_LINES: i16 = 20;
+    const HELP_QUERY_MAX: usize = 48;
+    let max_scroll_for = |query: &str| {
+        let total = KeybindGroup::total_help_lines_filtered(query) as i16;
+        let conservative = (total - 1).max(0) as u16;
+        let tight = (total - HELP_VISIBLE_LINES).max(0) as u16;
+        conservative.max(tight)
     };
 
     match key.code {
         KeyCode::Esc => {
-            app.help_active = false;
-            app.help_scroll = 0;
+            if !app.help_query.is_empty() {
+                app.help_query.clear();
+                app.help_scroll = 0;
+            } else {
+                app.help_active = false;
+                app.help_scroll = 0;
+            }
         }
         KeyCode::Up => {
             app.help_scroll = app.help_scroll.saturating_sub(1);
         }
         KeyCode::Down => {
+            let max_scroll = max_scroll_for(&app.help_query);
             app.help_scroll = (app.help_scroll + 1).min(max_scroll);
         }
         KeyCode::PageUp => {
             app.help_scroll = app.help_scroll.saturating_sub(10);
         }
         KeyCode::PageDown => {
+            let max_scroll = max_scroll_for(&app.help_query);
             app.help_scroll = (app.help_scroll + 10).min(max_scroll);
+        }
+        KeyCode::Backspace => {
+            app.help_query.pop();
+            app.help_scroll = 0;
+        }
+        KeyCode::Char(c) => {
+            if key.modifiers.contains(KeyModifiers::CONTROL) && (c == 'u' || c == 'U') {
+                app.help_query.clear();
+                app.help_scroll = 0;
+            } else if !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT) {
+                if app.help_query.chars().count() < HELP_QUERY_MAX {
+                    app.help_query.push(c);
+                }
+                app.help_scroll = 0;
+            }
         }
         _ => {}
     }
