@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
 use crate::app::{App, ArtistDetailFocus, StatusLevel, Tab, View, KeybindGroup};
@@ -20,6 +20,18 @@ use theme::*;
 
 mod image;
 use image::*;
+
+mod tabs;
+use tabs::*;
+
+mod queue;
+use queue::*;
+
+mod overlays;
+use overlays::*;
+
+mod footer;
+use footer::*;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -70,406 +82,21 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 // ── Tab bar ───────────────────────────────────────────────────────────────────
 
-/// Horizontal tab strip across the top, with a box drawn around the active tab.
-/// Colours match `render_carousel_tabs` in the artist and search views so
-/// navigation reads the same everywhere.
-///
-/// Tabs are placed one at a time rather than as a single centered `Line` so the
-/// active tab's exact column span is known and the box can be drawn around it.
-fn render_tab_bar(f: &mut Frame, app: &App, area: Rect) {
-    const SEP: &str = " - ";
-
-    if area.height < 3 || area.width == 0 {
-        return;
-    }
-
-    let titles: Vec<&str> = Tab::ALL.iter().map(|t| t.title()).collect();
-    let sep_w = SEP.chars().count() as u16;
-    let total_w: u16 = titles.iter().map(|t| t.chars().count() as u16).sum::<u16>()
-        + sep_w * titles.len().saturating_sub(1) as u16;
-
-    // Centre the strip, leaving room for the active tab's left border.
-    let mut x = area.x + area.width.saturating_sub(total_w) / 2;
-    let text_y = area.y + 1;
-
-    let mut active: Option<(u16, u16)> = None;
-
-    for (i, tab) in Tab::ALL.iter().enumerate() {
-        if i > 0 {
-            f.render_widget(
-                Paragraph::new(SEP).style(Style::default().fg(DIM)),
-                Rect::new(x, text_y, sep_w, 1),
-            );
-            x += sep_w;
-        }
-
-        let w = titles[i].chars().count() as u16;
-        let selected = app.current_tab == *tab;
-        if selected {
-            active = Some((x, w));
-        }
-
-        let style = if selected {
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(DIM)
-        };
-        f.render_widget(
-            Paragraph::new(titles[i]).style(style),
-            Rect::new(x, text_y, w, 1),
-        );
-
-        x += w;
-    }
-
-    // Drawn after the loop: the box hugs the label with one cell either side,
-    // overwriting the padding spaces of the adjacent " - " separators. Doing it
-    // inside the loop would let the *next* tab's separator erase the right
-    // border. A bare Block only paints border cells, so the label survives.
-    if let Some((tab_x, tab_w)) = active {
-        let box_x = tab_x.saturating_sub(1);
-        let box_w = (tab_w + 2).min(area.right().saturating_sub(box_x));
-        f.render_widget(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(ACCENT)),
-            Rect::new(box_x, area.y, box_w, 3),
-        );
-    }
-}
 
 // ── Queue panel ───────────────────────────────────────────────────────────────
 
-fn render_queue(f: &mut Frame, app: &App, area: Rect) {
-    let focused = app.queue_focused;
-    let border_style = if focused {
-        Style::default().fg(ACCENT)
-    } else {
-        Style::default().fg(Color::Rgb(40, 40, 40))
-    };
-    // No title on the block — ratatui doesn't reserve a row for titles on
-    // Borders::LEFT-only blocks, so the title would be overdrawn by content.
-    let block = Block::default()
-        .borders(Borders::LEFT)
-        .border_style(border_style);
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    // Title row rendered manually at the top of the inner area.
-    let queue_title = if app.now_playing.shuffle { " Queue ⇄ " } else { " Queue " };
-    f.render_widget(
-        Paragraph::new(Span::styled(queue_title, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))),
-        Rect::new(inner.x, inner.y, inner.width, 1),
-    );
-
-    // Content area starts one row below the title.
-    let content_y = inner.y + 1;
-    let content_h = inner.height.saturating_sub(1);
-
-    let queue = &app.now_playing.queue;
-    if queue.is_empty() {
-        if content_h > 0 {
-            f.render_widget(
-                Paragraph::new("no queue")
-                    .style(Style::default().fg(DIM))
-                    .alignment(Alignment::Center),
-                Rect::new(inner.x, content_y, inner.width, content_h),
-            );
-        }
-        return;
-    }
-
-    let current = app.now_playing.queue_index;
-    let cursor = app.queue_cursor;
-    let item_h = 2usize;
-    let visible = (content_h as usize).saturating_div(item_h).max(1);
-    let offset = app.queue_scroll_offset(visible);
-
-    let mut y = content_y;
-    for (i, track) in queue.iter().enumerate().skip(offset) {
-        if y + 1 >= content_y + content_h {
-            break;
-        }
-        let is_cur = i == current;
-        let is_cursor = focused && i == cursor && !app.help_active;
-        let heart = if app.favorite_track_ids.contains(&track.id) { " ❤" } else { "" };
-        let (title_line, line_style) = if is_cur {
-            (format!("♪ {}{}", track.title, heart), Style::default().fg(Color::Rgb(180, 200, 255)).add_modifier(Modifier::BOLD))
-        } else if is_cursor {
-            (format!("▶ {}{}", track.title, heart), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
-        } else {
-            (format!("{}{}", track.title, heart), Style::default().fg(Color::White))
-        };
-
-        f.render_widget(
-            Paragraph::new(title_line).style(line_style),
-            Rect::new(inner.x, y, inner.width, 1),
-        );
-        f.render_widget(
-            Paragraph::new(format!("  {}", track.all_artist_names())).style(line_style),
-            Rect::new(inner.x, y + 1, inner.width, 1),
-        );
-        y += item_h as u16;
-    }
-}
 
 // ── Command overlay ───────────────────────────────────────────────────────────
 
-fn render_command_overlay(f: &mut Frame, app: &App, area: Rect) {
-    let matches = app.command.matches();
-
-    let box_w: u16 = 34;
-    // border(2) + input(1) + divider(1) + items (at least 1)
-    let box_h: u16 = 4 + matches.len().max(1) as u16;
-
-    let x = area.x + area.width.saturating_sub(box_w) / 2;
-    let y = area.y + area.height.saturating_sub(box_h) / 2;
-    let overlay = Rect::new(
-        x.min(area.right().saturating_sub(box_w)),
-        y.min(area.bottom().saturating_sub(box_h)),
-        box_w.min(area.width),
-        box_h.min(area.height),
-    );
-
-    f.render_widget(Clear, overlay);
-    let block = Block::default()
-        .title(Span::styled(" command ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ACCENT));
-    let inner = block.inner(overlay);
-    f.render_widget(block, overlay);
-
-    if inner.height == 0 {
-        return;
-    }
-
-    // Input line: "/ <typed><ghost>█"
-    let q_lower = app.command.input.to_lowercase();
-    let ghost = matches.first().map(|m| &m[q_lower.len()..]).unwrap_or("");
-    let cursor = if (app.tick / 30) % 2 == 0 { "█" } else { " " };
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("/ ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-            Span::styled(app.command.input.clone(), Style::default().fg(Color::White)),
-            Span::styled(ghost, Style::default().fg(DIM)),
-            Span::styled(cursor, Style::default().fg(Color::White)),
-        ])),
-        Rect::new(inner.x, inner.y, inner.width, 1),
-    );
-
-    if inner.height < 2 {
-        return;
-    }
-
-    // Thin divider between input and list
-    f.render_widget(
-        Paragraph::new("─".repeat(inner.width as usize)).style(Style::default().fg(DIM)),
-        Rect::new(inner.x, inner.y + 1, inner.width, 1),
-    );
-
-    // Command rows
-    if matches.is_empty() {
-        f.render_widget(
-            Paragraph::new(" no match").style(Style::default().fg(DIM)),
-            Rect::new(inner.x, inner.y + 2, inner.width, 1),
-        );
-    } else {
-        for (i, cmd) in matches.iter().enumerate() {
-            let row_y = inner.y + 2 + i as u16;
-            if row_y >= inner.y + inner.height {
-                break;
-            }
-            let selected = i == app.command.selected;
-            let style = if selected {
-                Style::default().bg(SELECT_BG).fg(Color::White).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(DIM)
-            };
-            f.render_widget(
-                Paragraph::new(format!(" {cmd}")).style(style),
-                Rect::new(inner.x, row_y, inner.width, 1),
-            );
-        }
-    }
-}
 
 // ── Sort overlay ──────────────────────────────────────────────────────────────
 
-fn render_sort_overlay(f: &mut Frame, app: &App, area: Rect) {
-    use crate::app::SortPalette;
-
-    let options = SortPalette::get_options(app.current_tab);
-    let box_w: u16 = 26;
-    let box_h: u16 = 2 + options.len() as u16; // border top/bottom + one row per option
-
-    let x = area.x + area.width.saturating_sub(box_w) / 2;
-    let y = area.y + area.height.saturating_sub(box_h) / 2;
-    let overlay = Rect::new(
-        x.min(area.right().saturating_sub(box_w)),
-        y.min(area.bottom().saturating_sub(box_h)),
-        box_w.min(area.width),
-        box_h.min(area.height),
-    );
-
-    f.render_widget(Clear, overlay);
-    let block = Block::default()
-        .title(Span::styled(" sort by ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ACCENT));
-    let inner = block.inner(overlay);
-    f.render_widget(block, overlay);
-
-    for (i, (label, _)) in options.iter().enumerate() {
-        let row_y = inner.y + i as u16;
-        if row_y >= inner.y + inner.height {
-            break;
-        }
-        let selected = i == app.sort_palette.selected;
-        let style = if selected {
-            Style::default().bg(SELECT_BG).fg(Color::White).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(DIM)
-        };
-        let prefix = if selected { " ► " } else { "   " };
-        f.render_widget(
-            Paragraph::new(format!("{prefix}{label}")).style(style),
-            Rect::new(inner.x, row_y, inner.width, 1),
-        );
-    }
-}
 
 // ── Artist selection modal ────────────────────────────────────────────────────
 
-fn render_artist_selection_modal(f: &mut Frame, app: &App, area: Rect) {
-    let box_w = 40u16.min(area.width.saturating_sub(4));
-    let box_h = (4 + app.artist_selection.artist_names.len() as u16).min(area.height.saturating_sub(6));
-
-    let x = area.x + area.width.saturating_sub(box_w) / 2;
-    let y = area.y + area.height.saturating_sub(box_h) / 2;
-    let overlay = Rect::new(
-        x.min(area.right().saturating_sub(box_w)),
-        y.min(area.bottom().saturating_sub(box_h)),
-        box_w.min(area.width),
-        box_h.min(area.height),
-    );
-
-    f.render_widget(Clear, overlay);
-    let block = Block::default()
-        .title(Span::styled(" select artist ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ACCENT));
-    let inner = block.inner(overlay);
-    f.render_widget(block, overlay);
-
-    let start_y = inner.y;
-    for (i, name) in app.artist_selection.artist_names.iter().enumerate() {
-        let row_y = start_y + i as u16;
-        if row_y >= inner.y + inner.height {
-            break;
-        }
-        let selected = i == app.artist_selection.selected;
-        let style = if selected {
-            Style::default().bg(SELECT_BG).fg(Color::White).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
-        };
-        let prefix = if selected { " ► " } else { "   " };
-        let line = format!("{prefix}{}", name);
-        f.render_widget(
-            Paragraph::new(line).style(style),
-            Rect::new(inner.x, row_y, inner.width, 1),
-        );
-    }
-}
 
 // ── Help modal ────────────────────────────────────────────────────────────────
 
-fn render_help_modal(f: &mut Frame, app: &App, area: Rect) {
-    // Fixed size modal, well clear of the now-playing bar (9 lines at bottom)
-    let box_w = 50u16.min(area.width.saturating_sub(4));
-    let box_h = 24u16.min(area.height.saturating_sub(12)); // Leave 9 for now-playing + margin
-
-    // Center horizontally and vertically within the safe area
-    let safe_bottom = area.bottom().saturating_sub(10);
-    let x = area.x + area.width.saturating_sub(box_w) / 2;
-    let y = area.y + (safe_bottom - area.y).saturating_sub(box_h) / 2;
-
-    let overlay = Rect::new(x, y, box_w, box_h);
-
-    let block = Block::default()
-        .title(Span::styled(" help ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ACCENT));
-    let inner = block.inner(overlay);
-
-    // Clear only the inner content area
-    f.render_widget(Clear, inner);
-    f.render_widget(block, overlay);
-
-    if inner.height == 0 || inner.width < 20 {
-        return;
-    }
-
-    // Collect all keybind groups
-    let groups = vec![
-        KeybindGroup::global(),
-        KeybindGroup::navigation(),
-        KeybindGroup::queue(),
-        KeybindGroup::search(),
-        KeybindGroup::command(),
-    ];
-
-    // Build lines for rendering
-    let mut lines: Vec<Line> = Vec::new();
-    for group in groups {
-        // Group header
-        lines.push(Line::from(Span::styled(
-            group.title,
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        )));
-
-        // Keybinds
-        for keybind in group.binds {
-            let line = Line::from(vec![
-                Span::styled(
-                    format!("  {:<12}", keybind.key),
-                    Style::default().fg(ACCENT),
-                ),
-                Span::raw(keybind.action),
-            ]);
-            lines.push(line);
-        }
-
-        // Space between groups
-        lines.push(Line::from(""));
-    }
-
-    // Render with scrolling
-    let start = app.help_scroll as usize;
-    let mut y = inner.y;
-
-    for line in lines.iter().skip(start) {
-        if y >= inner.y + inner.height {
-            break;
-        }
-        f.render_widget(
-            Paragraph::new(line.clone()),
-            Rect::new(inner.x, y, inner.width, 1),
-        );
-        y += 1;
-    }
-
-    // Render scroll hint
-    if lines.len() as u16 > app.help_scroll + inner.height {
-        let hint = " ↓ more ";
-        f.render_widget(
-            Paragraph::new(hint)
-                .style(Style::default().fg(DIM))
-                .alignment(Alignment::Right),
-            Rect::new(inner.x, inner.y + inner.height.saturating_sub(1), inner.width, 1),
-        );
-    }
-}
 
 // ── Main content area ─────────────────────────────────────────────────────────
 
@@ -1953,96 +1580,9 @@ fn render_lyrics(f: &mut Frame, app: &App, area: Rect) {
 
 // ── Help hint ─────────────────────────────────────────────────────────────────
 
-fn render_footer(f: &mut Frame, app: &App, area: Rect) {
-    let cols = Layout::horizontal([Constraint::Min(0), Constraint::Length(20)])
-        .split(area);
-
-    let context_hint = get_context_hint(app);
-    let context_span = Span::styled(context_hint, Style::default().fg(DIM));
-    f.render_widget(
-        Paragraph::new(Line::from(context_span)).alignment(Alignment::Left),
-        cols[0],
-    );
-
-    let help_span = Span::styled("? show keybinds", Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
-    f.render_widget(
-        Paragraph::new(Line::from(help_span)).alignment(Alignment::Right),
-        cols[1],
-    );
-}
-
-fn get_context_hint(app: &App) -> String {
-    if let Some(View::ArtistDetail(detail)) = app.view_stack.last() {
-        match detail.focus {
-            ArtistDetailFocus::Tracks => {
-                "↑↓ Select | ← → Section | a Add | f Fav | r Radio".to_string()
-            }
-            ArtistDetailFocus::Albums | ArtistDetailFocus::EPs | ArtistDetailFocus::Singles => {
-                "↑↓ Select | ← → Section | f Fav | c Copy".to_string()
-            }
-            ArtistDetailFocus::Bio => {
-                "↑↓ Scroll | ← → Section".to_string()
-            }
-        }
-    } else if let Some(View::AlbumDetail(_)) = app.view_stack.last() {
-        "↑↓ Select | a Add | f Fav | r Radio | c Copy".to_string()
-    } else if let Some(View::PlaylistDetail(detail)) = app.view_stack.last() {
-        match detail.focus {
-            PlaylistDetailFocus::Tracks => {
-                "↑↓ Select | ← → Section | a Add | f Fav | r Radio | c Copy".to_string()
-            }
-            PlaylistDetailFocus::Description => {
-                "↑↓ Scroll | ← → Section".to_string()
-            }
-        }
-    } else {
-        match app.current_tab {
-            Tab::Home => "↑↓ Select | ← → Switch section | Enter Open".to_string(),
-            Tab::Favorites => "↑↓ Select | a Add | f Fav | r Radio | c Copy".to_string(),
-            Tab::Artists => "↑↓ Select | f Follow | Enter Open".to_string(),
-            Tab::Albums => "↑↓ Select | f Fav | Enter Open".to_string(),
-            Tab::Playlists => "↑↓ Select | Enter Open".to_string(),
-            Tab::Search => "↑↓ Select | ← → Section | / Open Search".to_string(),
-        }
-    }
-}
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
-fn render_toast(f: &mut Frame, app: &App, area: Rect) {
-    let Some((msg, level, set_at)) = &app.status else { return };
-
-    let elapsed = set_at.elapsed().as_secs_f64();
-    // Fade out over the last ~1 s of the 5 s lifetime.
-    let fading = elapsed > 4.0;
-
-    let (border_color, text_color) = match level {
-        StatusLevel::Error => (Color::Red,  if fading { Color::DarkGray } else { Color::White }),
-        StatusLevel::Info  => (ACCENT,      if fading { Color::DarkGray } else { Color::White }),
-    };
-
-    // Size the card to the message, clamped to the terminal width.
-    let inner_w = msg.len() as u16 + 4; // 2 padding each side
-    let toast_w = inner_w.min(area.width.saturating_sub(4));
-    let toast_h = 3u16;
-    let x = area.x + area.width.saturating_sub(toast_w) / 2;
-    // Float just above the now-playing bar (last 10 rows).
-    let y = area.y + area.height.saturating_sub(toast_h + 10);
-    let toast_rect = Rect::new(x, y, toast_w, toast_h);
-
-    f.render_widget(Clear, toast_rect);
-    f.render_widget(
-        Paragraph::new(msg.as_str())
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(text_color))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(border_color)),
-            ),
-        toast_rect,
-    );
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
