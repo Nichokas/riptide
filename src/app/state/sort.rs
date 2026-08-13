@@ -36,7 +36,7 @@ impl SortField {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Preferences {
     #[serde(default)]
-    pub favorites_sort: Option<SortField>,
+    pub tracks_sort: Option<SortField>,
     #[serde(default)]
     pub artists_sort: Option<SortField>,
     #[serde(default)]
@@ -57,7 +57,7 @@ fn default_queue_visible() -> bool { true }
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            favorites_sort: None,
+            tracks_sort: None,
             artists_sort: None,
             fav_albums_sort: None,
             playlists_sort: None,

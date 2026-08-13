@@ -43,7 +43,7 @@ pub struct App {
     pub command:   CommandState,
     pub sort_palette:  SortPalette,
     pub artist_selection: ArtistSelection,
-    pub favorites_sort: Option<SortField>,
+    pub tracks_sort: Option<SortField>,
     pub artists_sort:   Option<SortField>,
     pub fav_albums_sort: Option<SortField>,
     pub playlists_sort: Option<SortField>,
@@ -94,7 +94,7 @@ impl App {
             command:     CommandState::default(),
             sort_palette:    SortPalette::default(),
             artist_selection: ArtistSelection::default(),
-            favorites_sort:  prefs.favorites_sort,
+            tracks_sort:  prefs.tracks_sort,
             artists_sort:    prefs.artists_sort,
             fav_albums_sort: prefs.fav_albums_sort,
             playlists_sort:  prefs.playlists_sort,
@@ -136,7 +136,7 @@ impl App {
     /// Snapshot the persistable UI choices for writing back to `Config`.
     pub fn preferences(&self) -> Preferences {
         Preferences {
-            favorites_sort: self.favorites_sort,
+            tracks_sort: self.tracks_sort,
             artists_sort: self.artists_sort,
             fav_albums_sort: self.fav_albums_sort,
             playlists_sort: self.playlists_sort,

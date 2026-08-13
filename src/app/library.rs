@@ -142,7 +142,7 @@ impl App {
     /// than whether the user has explicitly chosen anything.
     pub fn active_sort(&self) -> Option<SortField> {
         let field = match self.current_tab {
-            Tab::Favorites => self.favorites_sort,
+            Tab::Favorites => self.tracks_sort,
             Tab::Artists   => self.artists_sort,
             Tab::Albums    => self.fav_albums_sort,
             Tab::Playlists => self.playlists_sort,
@@ -167,7 +167,7 @@ impl App {
         self.sort_palette.active = false;
         match self.current_tab {
             Tab::Home | Tab::Search => {}
-            Tab::Favorites => { self.favorites_sort = Some(field); self.sort_favorites(); }
+            Tab::Favorites => { self.tracks_sort = Some(field); self.sort_favorites(); }
             Tab::Artists   => { self.artists_sort = Some(field);   self.sort_artists(); }
             Tab::Albums    => { self.fav_albums_sort = Some(field); self.sort_fav_albums(); }
             Tab::Playlists => { self.playlists_sort = Some(field); self.sort_playlists(); }
@@ -185,7 +185,7 @@ impl App {
     // `None` means "never chosen", which sorts alphabetically.
 
     pub(crate) fn sort_favorites(&mut self) {
-        match self.favorites_sort.unwrap_or(SortField::Alphabetical) {
+        match self.tracks_sort.unwrap_or(SortField::Alphabetical) {
             SortField::Alphabetical => self.favorites.items
                 .sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase())),
             SortField::LastAdded => self.favorites.items

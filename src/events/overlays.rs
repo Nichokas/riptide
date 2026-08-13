@@ -66,7 +66,7 @@ pub(super) fn execute_command(app: &mut App, cmd: &str) {
             cleanup(app);
             app.set_tab(Tab::Home);
         }
-        "favorites" => {
+        "tracks" => {
             cleanup(app);
             app.set_tab(Tab::Favorites);
         }

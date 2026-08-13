@@ -211,7 +211,7 @@ It is created automatically on first run. Example:
   "country_code": "US",
   "session_id": "...",
   "prefs": {
-    "favorites_sort": "LastAdded",
+    "tracks_sort": "LastAdded",
     "artists_sort": null,
     "fav_albums_sort": "ByArtist",
     "playlists_sort": null,
@@ -229,7 +229,7 @@ optional — a config from an older version loads fine and picks up the defaults
 
 | Key                                                                   | Values                                                   | Default      |
 |-----------------------------------------------------------------------|----------------------------------------------------------|--------------|
-| `favorites_sort`, `artists_sort`, `fav_albums_sort`, `playlists_sort` | `"Alphabetical"`, `"LastAdded"`, `"ByArtist"`, or `null` | `null` (A–Z) |
+| `tracks_sort`, `artists_sort`, `fav_albums_sort`, `playlists_sort` | `"Alphabetical"`, `"LastAdded"`, `"ByArtist"`, or `null` | `null` (A–Z) |
 | `volume`                                                              | `0`–`100`                                                | `100`        |
 | `shuffle`                                                             | `true` / `false`                                         | `false`      |
 | `queue_visible`                                                       | `true` / `false`                                         | `true`       |
@@ -396,13 +396,11 @@ Note that `/` opens the search box on the Search tab, and the command palette ev
 Open with `/` (on any tab except Search) and type the start of a destination (Tab to autocomplete):
 
 - `home` — Go to Home
-- `favorites` — Go to Tracks
+- `tracks` — Go to Tracks
 - `artists` — Go to Artists
 - `albums` — Go to Albums
 - `playlists` — Go to Playlists
 - `search` — Open search
-
-The Tracks tab is still reached by typing `favorites`.
 
 ## Image Rendering
 

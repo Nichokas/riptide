@@ -34,8 +34,9 @@ impl Default for CommandState {
 }
 
 impl CommandState {
+    /// The commands offered in the palette, named to match the tab titles.
     pub const COMMANDS: &'static [&'static str] =
-        &["home", "favorites", "artists", "albums", "playlists", "search"];
+        &["home", "tracks", "artists", "albums", "playlists", "search"];
 
     pub fn matches(&self) -> Vec<&'static str> {
         let q = self.input.to_lowercase();
@@ -43,5 +44,35 @@ impl CommandState {
             .filter(|&&c| c.starts_with(q.as_str()))
             .copied()
             .collect()
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_state_matches_prefix() {
+        let mut cmd = CommandState::default();
+        cmd.input = "tra".to_string();
+        let matches = cmd.matches();
+        assert!(matches.contains(&"tracks"));
+        assert!(!matches.contains(&"artists"));
+    }
+
+    #[test]
+    fn command_state_empty_input_matches_all() {
+        let cmd = CommandState::default();
+        let matches = cmd.matches();
+        assert_eq!(matches.len(), CommandState::COMMANDS.len());
+    }
+
+    #[test]
+    fn command_state_no_match_returns_empty() {
+        let mut cmd = CommandState::default();
+        cmd.input = "zzz".to_string();
+        assert!(cmd.matches().is_empty());
     }
 }

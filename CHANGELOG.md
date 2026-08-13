@@ -13,6 +13,7 @@ DRM-encrypted media that mpv cannot play. See the note on `get_stream_url`.
 
 ### Added
 - Sort order, volume, shuffle state and queue visibility now persist across restarts, in a new `prefs` block in `config.json`
+  (the Tracks sort is stored as `tracks_sort`)
 - The active sort is shown in each list header, and the sort palette opens on the sort already applied
 - `t` shows/hides the queue panel; hiding it gives the content list the full width
 - Favorite indicator on search artist results
@@ -24,7 +25,7 @@ DRM-encrypted media that mpv cannot play. See the note on `get_stream_url`.
 - The search box only opens automatically when there are no results, so results survive leaving and returning to the tab; `Esc` closes the box rather than switching tab, and `Tab` keeps working while it is open
 - Global keybinds (transport, volume, tabs, help) now work while the queue is focused
 - Track lists number from 1 rather than 0
-- The "Favorites" tab is now called "Tracks"
+- The "Favorites" tab is now called "Tracks", and its command palette entry is now `tracks` (previously `favorites`)
 - Album, track and artist favorites, lyrics, and search all moved to the v2 API
 
 ### Fixed

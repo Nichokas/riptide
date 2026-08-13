@@ -350,29 +350,4 @@ mod tests {
         list.loading = true;
         assert!(!list.should_load_more());
     }
-
-    // ── CommandState ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn command_state_matches_prefix() {
-        let mut cmd = CommandState::default();
-        cmd.input = "fav".to_string();
-        let matches = cmd.matches();
-        assert!(matches.contains(&"favorites"));
-        assert!(!matches.contains(&"artists"));
-    }
-
-    #[test]
-    fn command_state_empty_input_matches_all() {
-        let cmd = CommandState::default();
-        let matches = cmd.matches();
-        assert_eq!(matches.len(), CommandState::COMMANDS.len());
-    }
-
-    #[test]
-    fn command_state_no_match_returns_empty() {
-        let mut cmd = CommandState::default();
-        cmd.input = "zzz".to_string();
-        assert!(cmd.matches().is_empty());
-    }
 }
