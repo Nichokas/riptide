@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2025 Ryan Cohan
 
+//! Tidal API client.
+//!
+//! [`ApiClient`] holds the HTTP core — auth, the JSON:API request helpers and
+//! the shared constants. Its methods are implemented across the domain modules
+//! below, each of which owns both its requests and the parsers for their
+//! responses.
+
 use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 use tokio::sync::RwLock;
@@ -8,14 +15,15 @@ use tokio::sync::RwLock;
 use super::models::*;
 
 mod parse;
-mod streaming;
-mod tracks;
+
 mod albums;
 mod artists;
 mod mixes;
 mod playlists;
 mod radio;
 mod search;
+mod streaming;
+mod tracks;
 
 pub use search::{SearchArtistPage, SearchPlaylistPage, SearchTrackPage};
 
