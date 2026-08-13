@@ -2976,6 +2976,49 @@ impl ApiClient {
             .await
     }
 
+    /// Resolve a playable URL for `track_id`.
+    ///
+    /// # This stays on v1 permanently — do not migrate it
+    ///
+    /// Every other endpoint in this client has moved to openapi.tidal.com/v2.
+    /// This one cannot, and the reason is DRM rather than effort. Verified
+    /// against track 431291038 on a live subscriber token:
+    ///
+    /// v1 `playbackinfopostpaywall` (LOSSLESS) returns a BTS manifest reading
+    /// `{"codecs":"flac","encryptionType":"NONE","urls":[...]}` — a plain HTTPS
+    /// URL to an unencrypted FLAC that mpv plays directly.
+    ///
+    /// The v2 equivalent, `GET /trackManifests/{id}`, only accepts
+    /// `manifestType` of `HLS` or `MPEG_DASH` (no BTS), and every combination
+    /// of `formats` / `usage` / `adaptive` returns CENC-encrypted content:
+    ///
+    /// | manifestType | formats           | Result                              |
+    /// |--------------|-------------------|-------------------------------------|
+    /// | HLS          | FLAC, FLAC_HIRES  | FairPlay, `initData: ["skd://…"]`   |
+    /// | MPEG_DASH    | FLAC, FLAC_HIRES  | Widevine                            |
+    /// | MPEG_DASH    | AACLC             | Widevine                            |
+    /// | MPEG_DASH    | `usage=DOWNLOAD`  | Widevine                            |
+    ///
+    /// The `"drmData": {"initData": null}` on the DASH responses is a red
+    /// herring — the init data lives in the `.mpd` body itself:
+    /// `<ContentProtection value="cbcs" cenc:default_KID="…">` plus Widevine
+    /// (`edef8ba9-…`) and PlayReady (`9a04f079-…`) PSSH boxes.
+    ///
+    /// Decrypting that needs a CDM, which mpv/ffmpeg do not have. TIDAL's own
+    /// Player SDK solves it by delegating to a browser's EME stack
+    /// (`shaka-player`, `fairplay-drm.ts`), so adopting the SDK would mean
+    /// embedding a browser engine and dropping mpv — and third-party apps on
+    /// that path are limited to 30-second previews unless the client ID is
+    /// entitled. Ours is not: `/trackFiles/{id}` returns
+    /// `403 CLIENT_NOT_ENTITLED`, and `/tracks/{id}/relationships/download`
+    /// yields only a resource identifier, no file.
+    ///
+    /// v1 also already carries the loudness data v2 advertises
+    /// (`albumReplayGain`, `trackReplayGain`, and both peak amplitudes), so
+    /// there is nothing to gain by switching even setting DRM aside.
+    ///
+    /// Consequence: `BASE`, `dash_to_hls`, `build_flac_m3u8` and the localhost
+    /// manifest server in `src/manifest.rs` are all load-bearing and must stay.
     pub async fn get_stream_url(&self, track_id: u64) -> Result<String> {
         // Quality fallback chain for streaming.
         //

@@ -16,14 +16,50 @@ This file documents conventions, patterns, and preferences for working on the Ri
 ## API Modernization Strategy
 
 ### Current Status
+
+**The v1 → v2 migration is complete.** Every endpoint that can move has moved:
+
 - Favorites (albums, tracks) → ✅ v2 API
-- Follow/unfollow (artists) → ✅ v2 API  
+- Follow/unfollow (artists) → ✅ v2 API
 - Search → ✅ v2 API
 - Playlists → ✅ v2 API
 - Albums → ✅ v2 API
-- Artists → ✅ v2 API
-- Radio → ✅ v2 API (dedicated module)
-- Remaining: Stream URLs, Lyrics, Artist bio (low priority)
+- Artists → ✅ v2 API (incl. top tracks, albums, EPs, singles, bio)
+- Radio (track + artist) → ✅ v2 API
+- Lyrics → ✅ v2 API
+- **Stream URLs → ⛔ stays on v1 permanently (see below)**
+
+### Stream URLs Stay on v1 — Do Not Re-Attempt
+
+`get_stream_url` is the only remaining v1 caller and it is **not** technical
+debt. v2 cannot serve playable audio to this client.
+
+Verified against track 431291038 on a live subscriber token:
+
+- **v1** `playbackinfopostpaywall` → BTS manifest with
+  `{"codecs":"flac","encryptionType":"NONE","urls":[...]}` — a plain HTTPS URL
+  to an unencrypted FLAC that mpv plays directly.
+- **v2** `GET /trackManifests/{id}` → only accepts `manifestType` of `HLS` or
+  `MPEG_DASH` (no BTS). Every combination of `formats` / `usage` / `adaptive`
+  returns CENC-`cbcs` encrypted content: FairPlay (`skd://` initData) on HLS,
+  Widevine + PlayReady PSSH boxes embedded in the `.mpd` on DASH. The
+  `"initData": null` in the DASH JSON is a red herring — the real init data is
+  inside the manifest body.
+
+Decrypting that requires a CDM, which mpv/ffmpeg do not have. TIDAL's Player
+SDK solves it by delegating to a browser's EME stack (`shaka-player`,
+`fairplay-drm.ts`), so adopting it would mean embedding a browser engine and
+dropping mpv entirely — and third-party apps on that path get 30-second
+previews unless the client ID is entitled. Ours is not: `/trackFiles/{id}`
+returns `403 CLIENT_NOT_ENTITLED`.
+
+There is also nothing to gain: v1 already returns the loudness data v2
+advertises (`albumReplayGain`, `trackReplayGain`, both peak amplitudes).
+
+**Consequence:** `const BASE`, `dash_to_hls`, `build_flac_m3u8`, and the
+localhost manifest server in `src/manifest.rs` are load-bearing. Do not remove
+them as "dead v1 code." Full write-up is in the doc comment on
+`get_stream_url` in `src/api/client.rs`.
 
 ### Do NOT Attempt Large Refactors on Long-Lived Branches
 
@@ -182,33 +218,15 @@ See memory: `pagination_strategy.md` and `tidal_api_pagination.md` for full deta
 
 ### Complete V1 API Usage Inventory
 
-**Still using v1 API endpoints:**
+**Exactly one v1 caller remains, and it is intentional:**
 
-| Function | Endpoint | File | Priority |
-|----------|----------|------|----------|
-| get_favorite_artists | `/users/{uid}/favorites/artists` | client.rs:408 | Medium |
-| get_artist_top_tracks | `/artists/{id}/toptracks` | client.rs:420 | High |
-| get_artist_albums | `/artists/{id}/albums` | client.rs:428 | High |
-| get_artist_eps | `/artists/{id}/albums?filter=ep` | client.rs:436 | High |
-| get_artist_singles | `/artists/{id}/albums?filter=single` | client.rs:447 | High |
-| get_artist_bio | `/artists/{id}/bio` | client.rs:458 | Low (see note) |
-| get_user_playlists | `/users/{uid}/playlists` | client.rs:464 | Medium |
-| get_favorite_playlists | `/users/{uid}/favorites/playlists` | client.rs:476 | Medium |
-| get_favorite_albums (old) | `/users/{uid}/favorites/albums` | client.rs:530 | Deprecated |
-| get_favorite_tracks (old) | `/users/{uid}/favorites/tracks` | client.rs:557 | Deprecated |
-| search | `/search` | client.rs:573 | Deprecated (v2 exists) |
-| get_album_tracks | `/albums/{id}/tracks` | client.rs:600 | Medium |
-| get_track_radio | `/tracks/{id}/radio` | client.rs:614 | Medium |
-| get_artist_radio | `/artists/{id}/radio` | client.rs:622 | Medium |
-| get_track_lyrics | `/tracks/{id}/lyrics` | client.rs:632 | Low |
-| get_stream_url | `/tracks/{id}/playbackinfopostpaywall` | client.rs:702 | Critical |
+| Function | Endpoint | File | Status |
+|----------|----------|------|--------|
+| get_stream_url | `/tracks/{id}/playbackinfopostpaywall` | client.rs:3022 | **v1 permanently** — v2 is DRM-encrypted, see "Stream URLs Stay on v1" above |
 
-**Note:** Artist bio endpoint returns empty include array for all tested artists (v1 API limitation). See memory: `artist_biography_v2_incomplete.md`
-
-**Hybrid Approach:** The codebase currently:
-- Uses v1 for user favorites and artist catalog data
-- Uses v2 for user collection playlists (newer playlists from web/mobile)
-- Merges both sources in responses.rs (line 151-168)
+Everything else now targets openapi.tidal.com/v2. The v1 helpers that used to
+back the migrated endpoints (`get`, `post_form`, `delete`, `uid`) have been
+deleted; `const BASE` survives solely for `get_stream_url`.
 
 ### Pagination Refactoring Opportunities
 
