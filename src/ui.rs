@@ -509,7 +509,7 @@ fn render_content(f: &mut Frame, app: &App, area: Rect) {
         Tab::Albums => render_fav_albums_list(f, app, area),
         Tab::Playlists => render_playlist_list(f, app, area),
         Tab::Favorites => {
-            let title = format!(" Favorites ({}) ", app.favorites.items.len());
+            let title = format!(" Tracks ({}) ", app.favorites.items.len());
             render_track_list(f, app, &app.favorites, true, area, &title);
         }
         Tab::Search => render_search_results(f, app, area),

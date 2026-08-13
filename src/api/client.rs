@@ -7,7 +7,6 @@ use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
-use super::auth::refresh_token_async;
 use super::models::*;
 
 const BASE: &str = "https://api.tidal.com/v1";
@@ -1657,68 +1656,6 @@ impl ApiClient {
         }
     }
 
-    async fn get<T: DeserializeOwned>(&self, path: &str, params: &[(&str, String)]) -> Result<T> {
-        let token = self.token.read().await.clone();
-        let url = format!("{BASE}{path}");
-
-        // Build base params that Tidal requires on every request
-        let mut all_params: Vec<(&str, String)> =
-            vec![("countryCode", self.config.country_code.clone())];
-        if let Some(sid) = &self.config.session_id {
-            all_params.push(("sessionId", sid.clone()));
-        }
-        all_params.extend_from_slice(params);
-
-        tracing::debug!("API request: GET {}", path);
-
-        let resp = self
-            .http
-            .get(&url)
-            .bearer_auth(&token)
-            .query(&all_params)
-            .send()
-            .await
-            .context("HTTP request failed")?;
-
-        let status = resp.status();
-        tracing::debug!("API response: {} {}", status.as_u16(), path);
-
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            tracing::info!("Token expired, refreshing...");
-            let new_token = refresh_token_async(&self.config, &self.http).await?;
-            let new_access = new_token.access_token.clone();
-            *self.token.write().await = new_access.clone();
-
-            return Ok(self
-                .http
-                .get(&url)
-                .bearer_auth(&new_access)
-                .query(&all_params)
-                .send()
-                .await?
-                .error_for_status()?
-                .json::<T>()
-                .await?);
-        }
-
-        let bytes = resp
-            .error_for_status()
-            .map_err(|e| {
-                let status = e
-                    .status()
-                    .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
-                tracing::error!("API error {} on {}: {}", status.as_u16(), path, e);
-                e
-            })?
-            .bytes()
-            .await?;
-        serde_json::from_slice::<T>(&bytes).map_err(|e| {
-            let snippet: String = String::from_utf8_lossy(&bytes).chars().take(300).collect();
-            tracing::error!("JSON parse error on {}: {} — body: {}", path, e, snippet);
-            anyhow::anyhow!("{e} — body: {snippet}")
-        })
-    }
-
     async fn get_openapi<T: DeserializeOwned>(
         &self,
         path: &str,
@@ -1815,34 +1752,6 @@ impl ApiClient {
 
         let next_cursor = page.links.and_then(|l| l.meta).and_then(|m| m.next_cursor);
         Ok((playlists, next_cursor))
-    }
-
-    async fn post_form(&self, path: &str, form: &[(&str, String)]) -> Result<()> {
-        let token = self.token.read().await.clone();
-        let url = format!("{BASE}{path}");
-
-        let mut all_params: Vec<(&str, String)> =
-            vec![("countryCode", self.config.country_code.clone())];
-        if let Some(sid) = &self.config.session_id {
-            all_params.push(("sessionId", sid.clone()));
-        }
-
-        self.http
-            .post(&url)
-            .bearer_auth(&token)
-            .query(&all_params)
-            .form(form)
-            .send()
-            .await
-            .context("HTTP POST failed")?
-            .error_for_status()?;
-        Ok(())
-    }
-
-    fn uid(&self) -> Result<u64> {
-        self.config
-            .user_id
-            .context("user_id not set — re-run to re-authenticate")
     }
 
     // ── Artists ───────────────────────────────────────────────────────────────
@@ -2526,17 +2435,14 @@ impl ApiClient {
     }
 
     pub async fn add_favorite_album(&self, album_id: u64) -> Result<()> {
-        let uid = self.uid()?;
-        self.post_form(
-            &format!("/users/{uid}/favorites/albums"),
-            &[("albumId", album_id.to_string())],
-        )
-        .await
+        let body = serde_json::json!({"data": [{"id": album_id.to_string(), "type": "albums"}]});
+        self.post_openapi_json("/userCollectionAlbums/me/relationships/items", &body)
+            .await
     }
 
     pub async fn remove_favorite_album(&self, album_id: u64) -> Result<()> {
-        let uid = self.uid()?;
-        self.delete(&format!("/users/{uid}/favorites/albums/{album_id}"))
+        let body = serde_json::json!({"data": [{"id": album_id.to_string(), "type": "albums"}]});
+        self.delete_openapi_json("/userCollectionAlbums/me/relationships/items", &body)
             .await
     }
 
@@ -2973,7 +2879,57 @@ impl ApiClient {
     // ── Lyrics ───────────────────────────────────────────────────────────────
 
     pub async fn get_track_lyrics(&self, track_id: u64) -> Result<LyricsResponse> {
-        self.get(&format!("/tracks/{track_id}/lyrics"), &[]).await
+        let token = self.token.read().await.clone();
+        let url = format!(
+            "{OPENAPI_BASE}/tracks/{track_id}/relationships/lyrics?countryCode={}&include=lyrics",
+            self.config.country_code
+        );
+
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&token)
+            .header("Accept", "application/vnd.api+json")
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await?;
+            tracing::debug!("API response for lyrics: {}", body);
+            return Ok(LyricsResponse {
+                lyrics: None,
+                subtitles: None,
+            });
+        }
+
+        let body = resp.text().await?;
+        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
+
+        if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
+            if let Some(lyrics_obj) = included.first() {
+                if let Some(attributes) = lyrics_obj.get("attributes") {
+                    let text = attributes
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let lrc = attributes
+                        .get("lrcText")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    return Ok(LyricsResponse {
+                        lyrics: text,
+                        subtitles: lrc,
+                    });
+                }
+            }
+        }
+
+        Ok(LyricsResponse {
+            lyrics: None,
+            subtitles: None,
+        })
     }
 
     // ── Playback ──────────────────────────────────────────────────────────────
@@ -2996,34 +2952,10 @@ impl ApiClient {
         Ok(bytes.to_vec())
     }
 
-    async fn delete(&self, path: &str) -> Result<()> {
-        let token = self.token.read().await.clone();
-        let url = format!("{BASE}{path}");
-
-        let mut all_params: Vec<(&str, String)> =
-            vec![("countryCode", self.config.country_code.clone())];
-        if let Some(sid) = &self.config.session_id {
-            all_params.push(("sessionId", sid.clone()));
-        }
-
-        self.http
-            .delete(&url)
-            .bearer_auth(&token)
-            .query(&all_params)
-            .send()
-            .await
-            .context("HTTP DELETE failed")?
-            .error_for_status()?;
-        Ok(())
-    }
-
     pub async fn add_favorite_track(&self, track_id: u64) -> Result<()> {
-        let uid = self.uid()?;
-        self.post_form(
-            &format!("/users/{uid}/favorites/tracks"),
-            &[("trackId", track_id.to_string())],
-        )
-        .await
+        let body = serde_json::json!({"data": [{"id": track_id.to_string(), "type": "tracks"}]});
+        self.post_openapi_json("/userCollectionTracks/me/relationships/items", &body)
+            .await
     }
 
     pub async fn follow_artist(&self, artist_id: u64) -> Result<()> {
@@ -3033,8 +2965,8 @@ impl ApiClient {
     }
 
     pub async fn remove_favorite_track(&self, track_id: u64) -> Result<()> {
-        let uid = self.uid()?;
-        self.delete(&format!("/users/{uid}/favorites/tracks/{track_id}"))
+        let body = serde_json::json!({"data": [{"id": track_id.to_string(), "type": "tracks"}]});
+        self.delete_openapi_json("/userCollectionTracks/me/relationships/items", &body)
             .await
     }
 
