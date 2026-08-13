@@ -323,6 +323,7 @@ pub(super) fn parse_v2_user_playlists(api_resp: &serde_json::Value) -> Result<(V
     tracing::debug!("Parsing user playlists from JSON:API response");
 
     let mut playlist_ids = Vec::new();
+    let mut added_at_by_id: HashMap<String, String> = HashMap::new();
     if let Some(items_data) = api_resp
         .get("data")
         .and_then(|v| v.get("relationships"))
@@ -337,13 +338,15 @@ pub(super) fn parse_v2_user_playlists(api_resp: &serde_json::Value) -> Result<(V
         for item_ref in items_data {
             if let Some(id) = item_ref.get("id").and_then(|v| v.as_str()) {
                 playlist_ids.push(id.to_string());
-            }
-            if let Some(added_at) = item_ref
-                .get("meta")
-                .and_then(|m| m.get("addedAt"))
-                .and_then(|v| v.as_str())
-            {
-                tracing::debug!("Playlist added at: {}", added_at);
+                // addedAt lives on the relationship entry, not on the playlist
+                // object in `included`, so capture it here against the id.
+                if let Some(added_at) = item_ref
+                    .get("meta")
+                    .and_then(|m| m.get("addedAt"))
+                    .and_then(|v| v.as_str())
+                {
+                    added_at_by_id.insert(id.to_string(), added_at.to_string());
+                }
             }
         }
     }
@@ -380,7 +383,7 @@ pub(super) fn parse_v2_user_playlists(api_resp: &serde_json::Value) -> Result<(V
                         number_of_tracks: number_of_items,
                         description: None,
                         cover: None,
-                        added_at: None,
+                        added_at: added_at_by_id.get(&playlist_id).cloned(),
                     });
 
                     tracing::debug!(
