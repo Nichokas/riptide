@@ -396,12 +396,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             Tab::Artists => app.artists.next(),
             Tab::Albums => app.fav_albums.next(),
             Tab::Playlists => app.playlists.next(),
-            Tab::Favorites => {
-                app.favorites.next();
-                if app.favorites.should_load_more() {
-                    app.load_favorites();
-                }
-            }
+            Tab::Favorites => app.favorites.next(),
             Tab::Search => app.search.pane_next(),
         },
         KeyCode::PageUp => match app.current_tab {
@@ -634,69 +629,4 @@ pub(super) fn get_selected_track(app: &App) -> Option<crate::api::models::Track>
         return Some(app.now_playing.queue[app.now_playing.queue_index].clone());
     }
     None
-}
-
-pub(super) fn check_load_more(app: &mut App) {
-    // Detail view tracks — checked before tab-level lists so the guard below
-    // (`view_stack.is_empty()`) doesn't shadow it.
-    if let Some(View::PlaylistDetail(detail)) = app.view_stack.last() {
-        if detail.tracks.should_load_more() {
-            app.load_more_playlist_tracks();
-            return;
-        }
-    }
-    if let Some(View::ArtistDetail(detail)) = app.view_stack.last() {
-        match detail.focus {
-            ArtistDetailFocus::Tracks if detail.tracks.should_load_more() => {
-                app.load_more_artist_tracks();
-                return;
-            }
-            ArtistDetailFocus::Albums if detail.albums.should_load_more() => {
-                app.load_more_artist_albums();
-                return;
-            }
-            ArtistDetailFocus::EPs if detail.eps.should_load_more() => {
-                app.load_more_artist_eps();
-                return;
-            }
-            ArtistDetailFocus::Singles if detail.singles.should_load_more() => {
-                app.load_more_artist_singles();
-                return;
-            }
-            _ => {}
-        }
-    }
-
-    match app.current_tab {
-        Tab::Search if app.view_stack.is_empty() => {
-            if app.search.should_load_more_for_pane() {
-                match app.search.pane {
-                    SearchPane::Tracks => app.load_search_tracks_next(),
-                    SearchPane::Artists => app.load_search_artists_next(),
-                    SearchPane::Playlists => app.load_search_playlists_next(),
-                }
-            }
-        }
-        Tab::Artists if app.view_stack.is_empty() => {
-            if app.artists.should_load_more() {
-                app.load_artists();
-            }
-        }
-        Tab::Albums if app.view_stack.is_empty() => {
-            if app.fav_albums.should_load_more() {
-                app.load_fav_albums();
-            }
-        }
-        Tab::Playlists if app.view_stack.is_empty() => {
-            if app.playlists.should_load_more() {
-                app.load_playlists();
-            }
-        }
-        Tab::Favorites if app.view_stack.is_empty() => {
-            if app.favorites.should_load_more() {
-                app.load_favorites();
-            }
-        }
-        _ => {}
-    }
 }

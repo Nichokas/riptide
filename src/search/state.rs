@@ -200,19 +200,4 @@ impl SearchState {
             SearchPane::Playlists => SearchPane::Artists,
         };
     }
-
-    pub fn should_load_more_for_pane(&self) -> bool {
-        if self.loading {
-            return false;
-        }
-
-        let (sel, items_len, next_url) = match self.pane {
-            SearchPane::Tracks => (self.track_sel, self.tracks.len(), &self.tracks_next_url),
-            SearchPane::Artists => (self.artist_sel, self.artists.len(), &self.artists_next_url),
-            SearchPane::Playlists => (self.playlist_sel, self.playlists.len(), &self.playlists_next_url),
-        };
-
-        // Load more if: not empty, within 10 items of the end, and we have a next page
-        items_len > 0 && sel >= items_len.saturating_sub(10) && next_url.is_some()
-    }
 }

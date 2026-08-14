@@ -11,7 +11,7 @@ use crate::api::client::{SearchArtistPage, SearchPlaylistPage, SearchTrackPage};
 #[derive(Debug)]
 pub enum ApiRequest {
     LoadArtists,
-    LoadPlaylists { offset: u32 },
+    LoadPlaylists,
     LoadFavorites,
     LoadFavAlbums { next_url: Option<String> },
     LoadArtistTopTracks { artist_id: u64 },
@@ -26,7 +26,7 @@ pub enum ApiRequest {
     FetchArtistArt { artist_id: u64, picture_id: String },
     FetchPlaylistArt { uuid: String, cover_url: String },
     LoadPlaylistTracks { uuid: String, next_url: Option<String> },
-    LoadMixTracks { uuid: String, offset: u32 },
+    LoadMixTracks { uuid: String },
     SearchTracks { query: String },
     SearchArtistsMain { query: String },
     SearchPlaylistsMain { query: String },

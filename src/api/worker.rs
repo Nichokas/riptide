@@ -56,12 +56,7 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             Err(e) => ApiResponse::Error(e.to_string()),
         },
 
-        ApiRequest::LoadPlaylists { offset } => {
-            if offset != 0 {
-                // v2 API returns all playlists in a single request, so pagination is not supported.
-                return ApiResponse::Error("Playlist pagination not supported (v2 API returns all at once)".to_string());
-            }
-
+        ApiRequest::LoadPlaylists => {
             match client.get_favorite_playlists().await {
                 Err(e) => ApiResponse::Error(e.to_string()),
                 Ok(fav_page) => {
@@ -223,8 +218,8 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             }
         }
 
-        ApiRequest::LoadMixTracks { uuid, offset } => {
-            match client.get_mix_tracks(&uuid, offset).await {
+        ApiRequest::LoadMixTracks { uuid } => {
+            match client.get_mix_tracks(&uuid).await {
                 Ok((tracks, total, cover, description)) => ApiResponse::PlaylistTracks {
                     uuid,
                     tracks,

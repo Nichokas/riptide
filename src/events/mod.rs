@@ -62,9 +62,6 @@ pub fn run_app(
             }
         }
 
-        // Check for more data to load
-        check_load_more(app);
-
         app.tick();
 
         if app.should_quit {

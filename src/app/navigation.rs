@@ -146,7 +146,7 @@ impl App {
         self.view_stack.push(View::PlaylistDetail(detail));
         // Use v2 API for mixes from Home tab, v1 for regular playlists
         if self.current_tab == Tab::Home {
-            let _ = self.api_tx.send(ApiRequest::LoadMixTracks { uuid, offset: 0 });
+            let _ = self.api_tx.send(ApiRequest::LoadMixTracks { uuid });
         } else {
             let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks { uuid, next_url: None });
         }

@@ -12,9 +12,7 @@ pub struct StatefulList<T> {
     pub selected: usize,
     pub loading: bool,
     pub exhausted: bool,
-    pub next_offset: u32,
     pub total: u32,
-    pub last_load_triggered_at: usize,
     pub pagination_cursor: Option<String>,
     viewport: ListViewport,
 }
@@ -82,9 +80,7 @@ impl<T> Default for StatefulList<T> {
             selected: 0,
             loading: false,
             exhausted: false,
-            next_offset: 0,
             total: 0,
-            last_load_triggered_at: 0,
             pagination_cursor: None,
             viewport: ListViewport::default(),
         }
@@ -117,19 +113,10 @@ impl<T> StatefulList<T> {
         self.items.get(self.selected)
     }
 
-    pub fn should_load_more(&self) -> bool {
-        !self.loading
-            && !self.exhausted
-            && !self.items.is_empty()
-            && self.selected >= self.items.len().saturating_sub(10)
-            && self.items.len() > self.last_load_triggered_at
-    }
-
     pub fn append(&mut self, new_items: Vec<T>, total: u32) {
-        self.next_offset = (self.items.len() + new_items.len()) as u32;
-        self.total = total;
-        self.exhausted = self.next_offset >= total;
         self.items.extend(new_items);
+        self.total = total;
+        self.exhausted = self.items.len() as u32 >= total;
         self.loading = false;
     }
 }
@@ -170,7 +157,6 @@ mod tests {
         let mut list: StatefulList<u32> = StatefulList::default();
         list.append(vec![1, 2, 3], 5);
         assert_eq!(list.items.len(), 3);
-        assert_eq!(list.next_offset, 3);
         assert_eq!(list.total, 5);
         assert!(!list.exhausted);
         assert!(!list.loading);
@@ -181,7 +167,6 @@ mod tests {
         let mut list: StatefulList<u32> = StatefulList::default();
         list.append(vec![1, 2, 3], 3);
         assert!(list.exhausted);
-        assert_eq!(list.next_offset, 3);
     }
 
     #[test]
@@ -192,7 +177,6 @@ mod tests {
         list.append(vec![3, 4], 4);
         assert_eq!(list.items, vec![1, 2, 3, 4]);
         assert!(list.exhausted);
-        assert_eq!(list.next_offset, 4);
     }
 
     #[test]
@@ -321,33 +305,5 @@ mod tests {
         empty.page_up();
         empty.page_down();
         assert_eq!(empty.selected, 0);
-    }
-
-    #[test]
-    fn stateful_list_should_load_more_triggers_near_end() {
-        let mut list: StatefulList<u32> = StatefulList::default();
-        list.append((0..20u32).collect(), 100);
-        // triggers when selected >= items.len() - 10 → at selected == 10
-        list.selected = 10;
-        assert!(list.should_load_more());
-        list.selected = 9;
-        assert!(!list.should_load_more());
-    }
-
-    #[test]
-    fn stateful_list_should_load_more_false_when_exhausted() {
-        let mut list: StatefulList<u32> = StatefulList::default();
-        list.append((0..5u32).collect(), 5);
-        list.selected = 4;
-        assert!(!list.should_load_more()); // exhausted
-    }
-
-    #[test]
-    fn stateful_list_should_load_more_false_while_loading() {
-        let mut list: StatefulList<u32> = StatefulList::default();
-        list.append((0..20u32).collect(), 100);
-        list.selected = 15;
-        list.loading = true;
-        assert!(!list.should_load_more());
     }
 }

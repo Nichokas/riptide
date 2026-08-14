@@ -21,13 +21,12 @@ impl App {
     pub fn load_playlists(&mut self) {
         if self.playlists.loading || self.playlists.exhausted { return; }
         self.playlists.loading = true;
-        let _ = self.api_tx.send(ApiRequest::LoadPlaylists { offset: self.playlists.next_offset });
+        let _ = self.api_tx.send(ApiRequest::LoadPlaylists);
     }
 
     pub fn load_favorites(&mut self) {
         if self.favorites.loading || self.favorites.exhausted { return; }
         self.favorites.loading = true;
-        self.favorites.last_load_triggered_at = self.favorites.items.len();
         let _ = self.api_tx.send(ApiRequest::LoadFavorites);
     }
 
@@ -53,46 +52,6 @@ impl App {
             }
         } else {
             tracing::debug!("load_more_playlist_tracks: no detail view open");
-        }
-    }
-
-    pub fn load_more_artist_tracks(&mut self) {
-        if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
-            if !detail.tracks.loading && !detail.tracks.exhausted {
-                let artist_id = detail.artist.id;
-                detail.tracks.loading = true;
-                let _ = self.api_tx.send(ApiRequest::LoadArtistTopTracks { artist_id });
-            }
-        }
-    }
-
-    pub fn load_more_artist_albums(&mut self) {
-        if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
-            if !detail.albums.loading && !detail.albums.exhausted {
-                let artist_id = detail.artist.id;
-                detail.albums.loading = true;
-                let _ = self.api_tx.send(ApiRequest::LoadArtistAlbums { artist_id });
-            }
-        }
-    }
-
-    pub fn load_more_artist_eps(&mut self) {
-        if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
-            if !detail.eps.loading && !detail.eps.exhausted {
-                let artist_id = detail.artist.id;
-                detail.eps.loading = true;
-                let _ = self.api_tx.send(ApiRequest::LoadArtistEPs { artist_id });
-            }
-        }
-    }
-
-    pub fn load_more_artist_singles(&mut self) {
-        if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
-            if !detail.singles.loading && !detail.singles.exhausted {
-                let artist_id = detail.artist.id;
-                detail.singles.loading = true;
-                let _ = self.api_tx.send(ApiRequest::LoadArtistSingles { artist_id });
-            }
         }
     }
 

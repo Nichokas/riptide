@@ -206,24 +206,6 @@ impl App {
         copy_to_clipboard(&url);
         self.set_status(format!("Copied link: {url}"), StatusLevel::Info);
     }
-
-    pub(crate) fn load_search_tracks_next(&mut self) {
-        if let Some(next_url) = self.search.tracks_next_url.take() {
-            let _ = self.api_tx.send(crate::api::ApiRequest::SearchTracksNext { next_url });
-        }
-    }
-
-    pub(crate) fn load_search_artists_next(&mut self) {
-        if let Some(next_url) = self.search.artists_next_url.take() {
-            let _ = self.api_tx.send(crate::api::ApiRequest::SearchArtistsNext { next_url });
-        }
-    }
-
-    pub(crate) fn load_search_playlists_next(&mut self) {
-        if let Some(next_url) = self.search.playlists_next_url.take() {
-            let _ = self.api_tx.send(crate::api::ApiRequest::SearchPlaylistsNext { next_url });
-        }
-    }
 }
 
 /// Write text to the terminal's clipboard using an OSC 52 escape sequence.
