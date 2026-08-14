@@ -68,6 +68,7 @@ pub struct App {
     pub suppressed_album_removals: Vec<u64>,
     pub pending_refavorite_tracks: Vec<u64>,
     pub pending_refavorite_albums: Vec<u64>,
+    pub pending_deletions: Vec<UndoEntry>,
 
     pub api_tx:    mpsc::UnboundedSender<ApiRequest>,
     pub player_tx: mpsc::UnboundedSender<PlayerCmd>,
@@ -78,6 +79,24 @@ pub struct App {
 pub enum UndoEntry {
     Track { track: Track, index: usize },
     Album { album: Album, index: usize },
+}
+
+impl UndoEntry {
+    /// Track and album resource ids share the u64 namespace, so lookups over a
+    /// mixed deletions list must match by variant, not bare id.
+    fn track_id(&self) -> Option<u64> {
+        match self {
+            Self::Track { track, .. } => Some(track.id),
+            _ => None,
+        }
+    }
+
+    fn album_id(&self) -> Option<u64> {
+        match self {
+            Self::Album { album, .. } => Some(album.id),
+            _ => None,
+        }
+    }
 }
 
 impl App {
@@ -136,6 +155,7 @@ impl App {
             suppressed_album_removals: Vec::new(),
             pending_refavorite_tracks: Vec::new(),
             pending_refavorite_albums: Vec::new(),
+            pending_deletions: Vec::new(),
             api_tx,
             player_tx,
             mpris_tx,

@@ -281,7 +281,7 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
 
         ApiRequest::FavoriteTrack { track_id } => match client.add_favorite_track(track_id).await {
             Ok(()) => ApiResponse::FavoriteAdded,
-            Err(e) => ApiResponse::Error(format!("favorite: {e}")),
+            Err(e) => ApiResponse::FavoriteTrackFailed { track_id, error: e.to_string() },
         },
 
         ApiRequest::FollowArtist { artist_id } => match client.follow_artist(artist_id).await {
@@ -291,7 +291,7 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
 
         ApiRequest::UnfavoriteTrack { track_id } => match client.remove_favorite_track(track_id).await {
             Ok(()) => ApiResponse::FavoriteRemoved { track_id },
-            Err(e) => ApiResponse::Error(format!("unfavorite: {e}")),
+            Err(e) => ApiResponse::UnfavoriteTrackFailed { track_id, error: e.to_string() },
         },
 
         ApiRequest::UnfollowArtist { artist_id } => match client.unfollow_artist(artist_id).await {
@@ -301,12 +301,12 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
 
         ApiRequest::FavoriteAlbum { album_id } => match client.add_favorite_album(album_id).await {
             Ok(()) => ApiResponse::AlbumFavorited { album_id },
-            Err(e) => ApiResponse::Error(format!("favorite album: {e}")),
+            Err(e) => ApiResponse::FavoriteAlbumFailed { album_id, error: e.to_string() },
         },
 
         ApiRequest::UnfavoriteAlbum { album_id } => match client.remove_favorite_album(album_id).await {
             Ok(()) => ApiResponse::AlbumUnfavorited { album_id },
-            Err(e) => ApiResponse::Error(format!("unfavorite album: {e}")),
+            Err(e) => ApiResponse::UnfavoriteAlbumFailed { album_id, error: e.to_string() },
         },
 
         ApiRequest::SavePlaylist { uuid } => match client.save_playlist(&uuid).await {

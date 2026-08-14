@@ -132,6 +132,20 @@ impl<T> StatefulList<T> {
         self.items.extend(new_items);
         self.loading = false;
     }
+
+    /// Re-insert an item that this list used to contain (undo or failed
+    /// removal): restores `total` and shifts the selection if the insert
+    /// landed at or before the cursor, which a raw `Vec::insert` would not.
+    pub fn restore_insert(&mut self, index: usize, item: T) {
+        let len_before = self.items.len();
+        let insert_at = index.min(len_before);
+        self.items.insert(insert_at, item);
+        self.total = self.total.saturating_add(1);
+        if len_before > 0 && insert_at <= self.selected {
+            self.selected = self.selected.saturating_add(1);
+        }
+        self.selected = self.selected.min(self.items.len().saturating_sub(1));
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

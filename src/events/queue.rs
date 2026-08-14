@@ -40,7 +40,12 @@ pub(super) fn handle_queue_input(app: &mut App, key: KeyEvent) {
             let cursor = app.queue_cursor;
             app.remove_from_queue(cursor);
         }
-        KeyCode::Char('u') => { app.undo_last(); }
+        KeyCode::Char('u') => {
+            app.set_status(
+                "Queue removals cannot be undone — use 'u' on Favorites/Albums".to_string(),
+                crate::app::StatusLevel::Info,
+            );
+        }
         KeyCode::Char('f') => {
             if let Some(track) = app.now_playing.queue.get(app.queue_cursor).cloned() {
                 app.toggle_favorite_track(&track);

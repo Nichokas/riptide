@@ -49,6 +49,9 @@ impl App {
                     if let Some(pos) = self.pending_album_removals.iter().position(|&x| x == album_id) {
                         self.pending_album_removals.remove(pos);
                     }
+                    if let Some(pos) = self.pending_deletions.iter().position(|d| d.album_id() == Some(album_id)) {
+                        self.pending_deletions.remove(pos);
+                    }
                     self.favorite_album_ids.insert(album_id);
                     if let Some(pos) = self.pending_refavorite_albums.iter().position(|&x| x == album_id) {
                         self.pending_refavorite_albums.remove(pos);
@@ -58,6 +61,9 @@ impl App {
                 }
                 if let Some(pos) = self.pending_album_removals.iter().position(|&x| x == album_id) {
                     self.pending_album_removals.remove(pos);
+                }
+                if let Some(pos) = self.pending_deletions.iter().position(|d| d.album_id() == Some(album_id)) {
+                    self.pending_deletions.remove(pos);
                 }
                 let before = self.fav_albums.items.len();
                 self.fav_albums.items.retain(|a| a.id != album_id);
@@ -517,6 +523,9 @@ impl App {
                     if let Some(pos) = self.pending_track_removals.iter().position(|&x| x == track_id) {
                         self.pending_track_removals.remove(pos);
                     }
+                    if let Some(pos) = self.pending_deletions.iter().position(|d| d.track_id() == Some(track_id)) {
+                        self.pending_deletions.remove(pos);
+                    }
                     self.favorite_track_ids.insert(track_id);
                     if let Some(pos) = self.pending_refavorite_tracks.iter().position(|&x| x == track_id) {
                         self.pending_refavorite_tracks.remove(pos);
@@ -526,6 +535,9 @@ impl App {
                 }
                 if let Some(pos) = self.pending_track_removals.iter().position(|&x| x == track_id) {
                     self.pending_track_removals.remove(pos);
+                }
+                if let Some(pos) = self.pending_deletions.iter().position(|d| d.track_id() == Some(track_id)) {
+                    self.pending_deletions.remove(pos);
                 }
                 let before = self.favorites.items.len();
                 self.favorites.items.retain(|t| t.id != track_id);
@@ -580,29 +592,56 @@ impl App {
                 self.home_discovery_mixes.loading = false;
             }
 
-            ApiResponse::Error(msg) => {
-                if msg.contains("unfavorite") {
-                    if msg.contains("album") {
-                        self.pending_album_removals.clear();
-                        self.suppressed_album_removals.clear();
-                        self.pending_refavorite_albums.clear();
-                    } else {
-                        self.pending_track_removals.clear();
-                        self.suppressed_track_removals.clear();
-                        self.pending_refavorite_tracks.clear();
+            ApiResponse::UnfavoriteTrackFailed { track_id, error } => {
+                if let Some(pos) = self.pending_deletions.iter().position(|d| d.track_id() == Some(track_id)) {
+                    if let crate::app::UndoEntry::Track { track, index } = self.pending_deletions.remove(pos) {
+                        let title = track.title.clone();
+                        if !self.favorites.items.iter().any(|t| t.id == track_id) {
+                            self.restore_favorite_track(index, track);
+                        }
+                        if matches!(self.undo_entry.as_ref(), Some(crate::app::UndoEntry::Track { track: t, .. }) if t.id == track_id) {
+                            self.undo_entry = None;
+                        }
+                        self.set_status(format!("Failed to remove '{title}': {error} — restored"), StatusLevel::Error);
                     }
-                } else if msg.contains("favorite:") || msg.contains("favorite album:") {
-                    if msg.contains("album") {
-                        self.pending_refavorite_albums.clear();
-                    } else {
-                        self.pending_refavorite_tracks.clear();
-                    }
+                } else {
+                    self.set_status(format!("Failed to remove track {track_id}: {error}"), StatusLevel::Error);
                 }
+                self.clear_pending_track(track_id);
+            }
+
+            ApiResponse::UnfavoriteAlbumFailed { album_id, error } => {
+                if let Some(pos) = self.pending_deletions.iter().position(|d| d.album_id() == Some(album_id)) {
+                    if let crate::app::UndoEntry::Album { album, index } = self.pending_deletions.remove(pos) {
+                        let title = album.title.clone();
+                        if !self.fav_albums.items.iter().any(|a| a.id == album_id) {
+                            self.restore_favorite_album(index, album);
+                        }
+                        if matches!(self.undo_entry.as_ref(), Some(crate::app::UndoEntry::Album { album: a, .. }) if a.id == album_id) {
+                            self.undo_entry = None;
+                        }
+                        self.set_status(format!("Failed to remove '{title}': {error} — restored"), StatusLevel::Error);
+                    }
+                } else {
+                    self.set_status(format!("Failed to remove album {album_id}: {error}"), StatusLevel::Error);
+                }
+                self.clear_pending_album(album_id);
+            }
+
+            ApiResponse::FavoriteTrackFailed { track_id, error } => {
+                self.clear_pending_track(track_id);
+                self.set_status(format!("Failed to restore track {track_id}: {error}"), StatusLevel::Error);
+            }
+
+            ApiResponse::FavoriteAlbumFailed { album_id, error } => {
+                self.clear_pending_album(album_id);
+                self.set_status(format!("Failed to restore album {album_id}: {error}"), StatusLevel::Error);
+            }
+
+            ApiResponse::Error(msg) => {
                 let display_msg = if msg.contains("no stream URL available for track") {
-                    // Try to enhance the error message with track name
                     if let Some(track_id_str) = msg.split("track ").last() {
                         if let Ok(track_id) = track_id_str.parse::<u64>() {
-                            // Look for this track in the queue
                             if let Some(track) = self.now_playing.queue.iter().find(|t| t.id == track_id) {
                                 format!("No stream available for \"{}\"", track.title)
                             } else {
@@ -619,7 +658,6 @@ impl App {
                 };
 
                 self.set_status(display_msg.clone(), StatusLevel::Error);
-                // Also set error on home sections if they're loading
                 if self.home_new_releases.loading {
                     self.home_new_releases.error = Some(display_msg.clone());
                     self.home_new_releases.loading = false;

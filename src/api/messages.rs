@@ -97,5 +97,9 @@ pub enum ApiResponse {
     NewReleases(Vec<Playlist>),
     TrackDetails { track_id: u64, track: Track, cover_url: Option<String> },
     TrackArt { track_id: u64, image_data: Vec<u8> },
+    UnfavoriteTrackFailed { track_id: u64, error: String },
+    UnfavoriteAlbumFailed { album_id: u64, error: String },
+    FavoriteTrackFailed { track_id: u64, error: String },
+    FavoriteAlbumFailed { album_id: u64, error: String },
     Error(String),
 }

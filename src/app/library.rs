@@ -66,6 +66,9 @@ impl App {
             if !self.pending_track_removals.contains(&removed.id) {
                 self.pending_track_removals.push(removed.id);
             }
+            if !self.pending_deletions.iter().any(|d| d.track_id() == Some(removed.id)) {
+                self.pending_deletions.push(crate::app::UndoEntry::Track { track: removed.clone(), index: idx });
+            }
             let _ = self.api_tx.send(ApiRequest::UnfavoriteTrack { track_id: removed.id });
             self.set_status(format!("Removed '{}' — press 'u' to undo", removed.title), StatusLevel::Info);
         } else {
@@ -74,6 +77,9 @@ impl App {
             self.favorites.total = self.favorites.total.saturating_sub(1);
             if !self.pending_track_removals.contains(&track.id) {
                 self.pending_track_removals.push(track.id);
+            }
+            if !self.pending_deletions.iter().any(|d| d.track_id() == Some(track.id)) {
+                self.pending_deletions.push(crate::app::UndoEntry::Track { track: track_clone.clone(), index: 0 });
             }
             let _ = self.api_tx.send(ApiRequest::UnfavoriteTrack { track_id: track.id });
             self.set_status(format!("Removed '{}' — press 'u' to undo", track.title), StatusLevel::Info);
@@ -90,16 +96,7 @@ impl App {
             crate::app::UndoEntry::Track { track, index } => {
                 let id = track.id;
                 let title = track.title.clone();
-                let len_before = self.favorites.items.len();
-                let insert_at = index.min(len_before);
-                self.favorites.items.insert(insert_at, track);
-                self.favorites.total = self.favorites.total.saturating_add(1);
-                if len_before > 0 && insert_at <= self.favorites.selected {
-                    self.favorites.selected = self.favorites.selected.saturating_add(1);
-                }
-                self.favorites.selected = self.favorites.selected
-                    .min(self.favorites.items.len().saturating_sub(1));
-                self.rebuild_favorite_track_ids();
+                self.restore_favorite_track(index, track);
                 if self.pending_track_removals.contains(&id) {
                     if !self.suppressed_track_removals.contains(&id) {
                         self.suppressed_track_removals.push(id);
@@ -115,16 +112,7 @@ impl App {
             crate::app::UndoEntry::Album { album, index } => {
                 let id = album.id;
                 let title = album.title.clone();
-                let len_before = self.fav_albums.items.len();
-                let insert_at = index.min(len_before);
-                self.fav_albums.items.insert(insert_at, album);
-                self.fav_albums.total = self.fav_albums.total.saturating_add(1);
-                if len_before > 0 && insert_at <= self.fav_albums.selected {
-                    self.fav_albums.selected = self.fav_albums.selected.saturating_add(1);
-                }
-                self.fav_albums.selected = self.fav_albums.selected
-                    .min(self.fav_albums.items.len().saturating_sub(1));
-                self.rebuild_favorite_album_ids();
+                self.restore_favorite_album(index, album);
                 if self.pending_album_removals.contains(&id) {
                     if !self.suppressed_album_removals.contains(&id) {
                         self.suppressed_album_removals.push(id);
@@ -138,6 +126,28 @@ impl App {
                 self.set_status(format!("Restored '{title}'"), StatusLevel::Info);
             }
         }
+    }
+
+    pub(crate) fn restore_favorite_track(&mut self, index: usize, track: Track) {
+        self.favorites.restore_insert(index, track);
+        self.rebuild_favorite_track_ids();
+    }
+
+    pub(crate) fn restore_favorite_album(&mut self, index: usize, album: Album) {
+        self.fav_albums.restore_insert(index, album);
+        self.rebuild_favorite_album_ids();
+    }
+
+    pub(crate) fn clear_pending_track(&mut self, id: u64) {
+        self.pending_track_removals.retain(|&x| x != id);
+        self.suppressed_track_removals.retain(|&x| x != id);
+        self.pending_refavorite_tracks.retain(|&x| x != id);
+    }
+
+    pub(crate) fn clear_pending_album(&mut self, id: u64) {
+        self.pending_album_removals.retain(|&x| x != id);
+        self.suppressed_album_removals.retain(|&x| x != id);
+        self.pending_refavorite_albums.retain(|&x| x != id);
     }
 
     // ── Following ─────────────────────────────────────────────────────────────
@@ -218,6 +228,9 @@ impl App {
             if !self.pending_album_removals.contains(&removed.id) {
                 self.pending_album_removals.push(removed.id);
             }
+            if !self.pending_deletions.iter().any(|d| d.album_id() == Some(removed.id)) {
+                self.pending_deletions.push(crate::app::UndoEntry::Album { album: removed.clone(), index: idx });
+            }
             let _ = self.api_tx.send(ApiRequest::UnfavoriteAlbum { album_id: removed.id });
             self.set_status(format!("Removed '{}' — press 'u' to undo", removed.title), StatusLevel::Info);
         } else {
@@ -226,6 +239,9 @@ impl App {
             self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
             if !self.pending_album_removals.contains(&album.id) {
                 self.pending_album_removals.push(album.id);
+            }
+            if !self.pending_deletions.iter().any(|d| d.album_id() == Some(album.id)) {
+                self.pending_deletions.push(crate::app::UndoEntry::Album { album: album_clone.clone(), index: 0 });
             }
             let _ = self.api_tx.send(ApiRequest::UnfavoriteAlbum { album_id: album.id });
             self.set_status(format!("Removed '{}' — press 'u' to undo", album.title), StatusLevel::Info);
