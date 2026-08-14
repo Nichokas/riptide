@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2025 Ryan Cohan
 
-use crate::api::{ApiRequest, ApiResponse};
-use crate::api::models::*;
-use crate::player::{PlayerCmd, PlayerEvent};
 use super::{App, StatusLevel, View};
+use crate::api::models::*;
+use crate::api::{ApiRequest, ApiResponse};
+use crate::player::{PlayerCmd, PlayerEvent};
 
 impl App {
     pub fn handle_api_response(&mut self, resp: ApiResponse) {
@@ -16,10 +16,15 @@ impl App {
                 self.rebuild_favorite_artist_ids();
             }
 
-            ApiResponse::FavAlbumsPage { albums, total, next_url } => {
+            ApiResponse::FavAlbumsPage {
+                albums,
+                total,
+                next_url,
+            } => {
                 let existing_ids: std::collections::HashSet<u64> =
                     self.fav_albums.items.iter().map(|a| a.id).collect();
-                let unique: Vec<Album> = albums.into_iter()
+                let unique: Vec<Album> = albums
+                    .into_iter()
                     .filter(|a| !existing_ids.contains(&a.id))
                     .collect();
                 self.fav_albums.append(unique, total);
@@ -46,7 +51,9 @@ impl App {
             ApiResponse::AlbumUnfavorited { album_id } => {
                 self.fav_albums.items.retain(|a| a.id != album_id);
                 self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
-                self.fav_albums.selected = self.fav_albums.selected
+                self.fav_albums.selected = self
+                    .fav_albums
+                    .selected
                     .min(self.fav_albums.items.len().saturating_sub(1));
                 self.favorite_album_ids.remove(&album_id);
             }
@@ -56,7 +63,9 @@ impl App {
             ApiResponse::PlaylistRemoved { uuid } => {
                 self.playlists.items.retain(|p| p.uuid != uuid);
                 self.playlists.total = self.playlists.total.saturating_sub(1);
-                self.playlists.selected = self.playlists.selected
+                self.playlists.selected = self
+                    .playlists
+                    .selected
                     .min(self.playlists.items.len().saturating_sub(1));
             }
 
@@ -67,10 +76,8 @@ impl App {
 
             ApiResponse::Favorites(items, total) => {
                 self.favorites.append(items, total);
+                self.favorites.exhausted = true;
                 self.sort_favorites();
-                if self.favorites.should_load_more() {
-                    self.load_favorites();
-                }
                 self.rebuild_favorite_track_ids();
             }
 
@@ -95,7 +102,9 @@ impl App {
                         if detail.singles.items.is_empty() && !detail.singles.loading {
                             let artist_id = detail.artist.id;
                             detail.singles.loading = true;
-                            let _ = self.api_tx.send(ApiRequest::LoadArtistSingles { artist_id });
+                            let _ = self
+                                .api_tx
+                                .send(ApiRequest::LoadArtistSingles { artist_id });
                         }
                     }
                 }
@@ -118,7 +127,8 @@ impl App {
             ApiResponse::ArtistEPs { artist_id, albums } => {
                 if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.artist.id == artist_id {
-                        let eps: Vec<Album> = albums.into_iter()
+                        let eps: Vec<Album> = albums
+                            .into_iter()
                             .filter(|a| a.number_of_tracks.unwrap_or(0) >= 3)
                             .collect();
                         let n = eps.len() as u32;
@@ -135,7 +145,8 @@ impl App {
             ApiResponse::ArtistSingles { artist_id, albums } => {
                 if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.artist.id == artist_id {
-                        let singles: Vec<Album> = albums.into_iter()
+                        let singles: Vec<Album> = albums
+                            .into_iter()
                             .filter(|a| a.number_of_tracks.unwrap_or(0) <= 2)
                             .collect();
                         let n = singles.len() as u32;
@@ -159,7 +170,10 @@ impl App {
                         detail.album = album.clone();
                         if let Some(cover_url) = cover.clone() {
                             detail.art_loading = true;
-                            let _ = self.api_tx.send(ApiRequest::FetchAlbumArt { album_id, cover_id: cover_url });
+                            let _ = self.api_tx.send(ApiRequest::FetchAlbumArt {
+                                album_id,
+                                cover_id: cover_url,
+                            });
                         }
                     }
                 }
@@ -169,7 +183,10 @@ impl App {
                     if track.album.id == album_id {
                         if let Some(cover_url) = cover {
                             self.now_playing.art_loading = true;
-                            let _ = self.api_tx.send(ApiRequest::FetchAlbumArt { album_id, cover_id: cover_url });
+                            let _ = self.api_tx.send(ApiRequest::FetchAlbumArt {
+                                album_id,
+                                cover_id: cover_url,
+                            });
                         }
                     }
                 }
@@ -185,10 +202,17 @@ impl App {
                 }
             }
 
-            ApiResponse::AlbumArt { album_id, image_data } => {
-                tracing::debug!("AlbumArt response for album_id={}, bytes={}", album_id, image_data.len());
-                let is_now_playing = self.now_playing.track.as_ref()
-                    .map(|t| t.album.id) == Some(album_id);
+            ApiResponse::AlbumArt {
+                album_id,
+                image_data,
+            } => {
+                tracing::debug!(
+                    "AlbumArt response for album_id={}, bytes={}",
+                    album_id,
+                    image_data.len()
+                );
+                let is_now_playing =
+                    self.now_playing.track.as_ref().map(|t| t.album.id) == Some(album_id);
                 tracing::debug!("is_now_playing={}", is_now_playing);
                 if is_now_playing {
                     tracing::debug!("Setting now_playing.art_bytes");
@@ -203,7 +227,10 @@ impl App {
                 }
             }
 
-            ApiResponse::ArtistArt { artist_id, image_data } => {
+            ApiResponse::ArtistArt {
+                artist_id,
+                image_data,
+            } => {
                 if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.artist.id == artist_id {
                         detail.art_bytes = Some(image_data);
@@ -230,22 +257,40 @@ impl App {
                 }
             }
 
-            ApiResponse::ArtistPicture { artist_id, picture_url } => {
+            ApiResponse::ArtistPicture {
+                artist_id,
+                picture_url,
+            } => {
                 if let Some(View::ArtistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.artist.id == artist_id {
                         if let Some(url) = picture_url {
                             detail.art_loading = true;
-                            let _ = self.api_tx.send(ApiRequest::FetchArtistArt { artist_id, picture_id: url });
+                            let _ = self.api_tx.send(ApiRequest::FetchArtistArt {
+                                artist_id,
+                                picture_id: url,
+                            });
                         }
                     }
                 }
             }
 
-            ApiResponse::PlaylistTracks { uuid, tracks, total, next_cursor, description, cover } => {
+            ApiResponse::PlaylistTracks {
+                uuid,
+                tracks,
+                total,
+                next_cursor,
+                description,
+                cover,
+            } => {
                 // 1. Update the detail view while it's open.
                 if let Some(View::PlaylistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.playlist.uuid == uuid {
-                        tracing::debug!("PlaylistTracks response: has_description={}, has_cover={}, total_tracks={}", description.is_some(), cover.is_some(), total);
+                        tracing::debug!(
+                            "PlaylistTracks response: has_description={}, has_cover={}, total_tracks={}",
+                            description.is_some(),
+                            cover.is_some(),
+                            total
+                        );
                         if let Some(desc) = description {
                             tracing::debug!("Setting description: {}", desc);
                             detail.playlist.description = Some(desc);
@@ -270,8 +315,15 @@ impl App {
                         detail.tracks.pagination_cursor = next_cursor.clone();
                         detail.tracks.exhausted = next_cursor.is_none();
                         match &next_cursor {
-                            Some(c) => tracing::debug!("Stored cursor: {} | Total items loaded: {}", c, detail.tracks.items.len()),
-                            None => tracing::debug!("No more pages | Total items loaded: {}", detail.tracks.items.len()),
+                            Some(c) => tracing::debug!(
+                                "Stored cursor: {} | Total items loaded: {}",
+                                c,
+                                detail.tracks.items.len()
+                            ),
+                            None => tracing::debug!(
+                                "No more pages | Total items loaded: {}",
+                                detail.tracks.items.len()
+                            ),
                         }
                     }
                 }
@@ -308,12 +360,16 @@ impl App {
                     self.now_playing.source_playlist_cursor = next_cursor.clone();
 
                     // If the detail view is gone, keep firing page requests ourselves (if more pages available).
-                    let detail_open = if let Some(View::PlaylistDetail(d)) = self.view_stack.last() {
+                    let detail_open = if let Some(View::PlaylistDetail(d)) = self.view_stack.last()
+                    {
                         d.playlist.uuid == uuid
                     } else {
                         false
                     };
-                    if !detail_open && next_cursor.is_some() && self.now_playing.source_playlist_next_offset < total {
+                    if !detail_open
+                        && next_cursor.is_some()
+                        && self.now_playing.source_playlist_next_offset < total
+                    {
                         let _ = self.api_tx.send(ApiRequest::LoadPlaylistTracks {
                             uuid,
                             next_url: self.now_playing.source_playlist_cursor.clone(),
@@ -322,9 +378,9 @@ impl App {
 
                     if old_queue_len <= qi + 1 {
                         if let Some(next) = self.now_playing.queue.get(qi + 1) {
-                            let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl {
-                                track_id: next.id,
-                            });
+                            let _ = self
+                                .api_tx
+                                .send(ApiRequest::ResolveStreamUrl { track_id: next.id });
                         }
                     }
                 }
@@ -337,11 +393,13 @@ impl App {
                     if let Some(next_url) = &page.next_url {
                         self.search.tracks_awaiting_page2 = true;
                         let _ = self.api_tx.send(ApiRequest::SearchTracksNext {
-                            next_url: next_url.clone()
+                            next_url: next_url.clone(),
                         });
                     } else {
                         self.search.tracks_awaiting_page2 = false;
-                        if !self.search.artists_awaiting_page2 && !self.search.playlists_awaiting_page2 {
+                        if !self.search.artists_awaiting_page2
+                            && !self.search.playlists_awaiting_page2
+                        {
                             self.search.loading = false;
                         }
                     }
@@ -350,11 +408,13 @@ impl App {
                     self.search.tracks.extend(page.tracks);
                     if let Some(next_url) = &page.next_url {
                         let _ = self.api_tx.send(ApiRequest::SearchTracksNext {
-                            next_url: next_url.clone()
+                            next_url: next_url.clone(),
                         });
                     } else {
                         self.search.tracks_awaiting_page2 = false;
-                        if !self.search.artists_awaiting_page2 && !self.search.playlists_awaiting_page2 {
+                        if !self.search.artists_awaiting_page2
+                            && !self.search.playlists_awaiting_page2
+                        {
                             self.search.loading = false;
                         }
                     }
@@ -369,11 +429,13 @@ impl App {
                     if let Some(next_url) = &page.next_url {
                         self.search.artists_awaiting_page2 = true;
                         let _ = self.api_tx.send(ApiRequest::SearchArtistsNext {
-                            next_url: next_url.clone()
+                            next_url: next_url.clone(),
                         });
                     } else {
                         self.search.artists_awaiting_page2 = false;
-                        if !self.search.tracks_awaiting_page2 && !self.search.playlists_awaiting_page2 {
+                        if !self.search.tracks_awaiting_page2
+                            && !self.search.playlists_awaiting_page2
+                        {
                             self.search.loading = false;
                         }
                     }
@@ -382,11 +444,13 @@ impl App {
                     self.search.artists.extend(page.artists);
                     if let Some(next_url) = &page.next_url {
                         let _ = self.api_tx.send(ApiRequest::SearchArtistsNext {
-                            next_url: next_url.clone()
+                            next_url: next_url.clone(),
                         });
                     } else {
                         self.search.artists_awaiting_page2 = false;
-                        if !self.search.tracks_awaiting_page2 && !self.search.playlists_awaiting_page2 {
+                        if !self.search.tracks_awaiting_page2
+                            && !self.search.playlists_awaiting_page2
+                        {
                             self.search.loading = false;
                         }
                     }
@@ -401,11 +465,12 @@ impl App {
                     if let Some(next_url) = &page.next_url {
                         self.search.playlists_awaiting_page2 = true;
                         let _ = self.api_tx.send(ApiRequest::SearchPlaylistsNext {
-                            next_url: next_url.clone()
+                            next_url: next_url.clone(),
                         });
                     } else {
                         self.search.playlists_awaiting_page2 = false;
-                        if !self.search.tracks_awaiting_page2 && !self.search.artists_awaiting_page2 {
+                        if !self.search.tracks_awaiting_page2 && !self.search.artists_awaiting_page2
+                        {
                             self.search.loading = false;
                         }
                     }
@@ -414,11 +479,12 @@ impl App {
                     self.search.playlists.extend(page.playlists);
                     if let Some(next_url) = &page.next_url {
                         let _ = self.api_tx.send(ApiRequest::SearchPlaylistsNext {
-                            next_url: next_url.clone()
+                            next_url: next_url.clone(),
                         });
                     } else {
                         self.search.playlists_awaiting_page2 = false;
-                        if !self.search.tracks_awaiting_page2 && !self.search.artists_awaiting_page2 {
+                        if !self.search.tracks_awaiting_page2 && !self.search.artists_awaiting_page2
+                        {
                             self.search.loading = false;
                         }
                     }
@@ -426,12 +492,12 @@ impl App {
                 self.search.playlists_next_url = page.next_url;
             }
 
-
             ApiResponse::StreamUrl { track_id, url } => {
                 let idx = self.now_playing.queue_index;
                 if self.now_playing.queue.get(idx).map(|t| t.id) == Some(track_id) {
                     // Always update the track when we get a successful stream URL for the current track
-                    let track_changed = self.now_playing.track.as_ref().map(|t| t.id) != Some(track_id);
+                    let track_changed =
+                        self.now_playing.track.as_ref().map(|t| t.id) != Some(track_id);
                     self.now_playing.track = self.now_playing.queue.get(idx).cloned();
 
                     if track_changed {
@@ -451,14 +517,20 @@ impl App {
 
                     let _ = self.player_tx.send(PlayerCmd::Play(url));
                     if let Some(next) = self.now_playing.queue.get(idx + 1) {
-                        let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl { track_id: next.id });
+                        let _ = self
+                            .api_tx
+                            .send(ApiRequest::ResolveStreamUrl { track_id: next.id });
                     }
                 } else if self.now_playing.queue.get(idx + 1).map(|t| t.id) == Some(track_id) {
                     let _ = self.player_tx.send(PlayerCmd::Append(url));
                 }
             }
 
-            ApiResponse::Lyrics { track_id, synced, plain } => {
+            ApiResponse::Lyrics {
+                track_id,
+                synced,
+                plain,
+            } => {
                 if self.now_playing.track.as_ref().map(|t| t.id) == Some(track_id) {
                     self.now_playing.lyrics_synced = synced;
                     self.now_playing.lyrics_plain = plain;
@@ -466,25 +538,43 @@ impl App {
                 }
             }
 
-            ApiResponse::TrackDetails { track_id, track, cover_url } => {
-                tracing::debug!("TrackDetails for track_id={}, cover_url={:?}", track_id, cover_url);
+            ApiResponse::TrackDetails {
+                track_id,
+                track,
+                cover_url,
+            } => {
+                tracing::debug!(
+                    "TrackDetails for track_id={}, cover_url={:?}",
+                    track_id,
+                    cover_url
+                );
                 if self.now_playing.track.as_ref().map(|t| t.id) == Some(track_id) {
                     self.now_playing.track = Some(track);
                     // Only fetch track cover if it's a valid image (not video)
                     if let Some(url) = cover_url {
-                        if url.ends_with(".jpg") || url.ends_with(".png") || url.ends_with(".jpeg") {
+                        if url.ends_with(".jpg") || url.ends_with(".png") || url.ends_with(".jpeg")
+                        {
                             tracing::debug!("TrackDetails has valid image cover_url, fetching");
                             self.now_playing.art_loading = true;
                             self.now_playing.art_bytes = None;
-                            let _ = self.api_tx.send(ApiRequest::FetchTrackArt { track_id, cover_url: url });
+                            let _ = self.api_tx.send(ApiRequest::FetchTrackArt {
+                                track_id,
+                                cover_url: url,
+                            });
                         } else {
-                            tracing::debug!("TrackDetails has non-image cover_url ({}), skipping", url);
+                            tracing::debug!(
+                                "TrackDetails has non-image cover_url ({}), skipping",
+                                url
+                            );
                         }
                     }
                 }
             }
 
-            ApiResponse::TrackArt { track_id, image_data } => {
+            ApiResponse::TrackArt {
+                track_id,
+                image_data,
+            } => {
                 if self.now_playing.track.as_ref().map(|t| t.id) == Some(track_id) {
                     self.now_playing.art_bytes = Some(image_data);
                     self.now_playing.art_loading = false;
@@ -496,7 +586,9 @@ impl App {
             ApiResponse::FavoriteRemoved { track_id } => {
                 self.favorites.items.retain(|t| t.id != track_id);
                 self.favorites.total = self.favorites.total.saturating_sub(1);
-                self.favorites.selected = self.favorites.selected
+                self.favorites.selected = self
+                    .favorites
+                    .selected
                     .min(self.favorites.items.len().saturating_sub(1));
                 self.rebuild_favorite_track_ids();
             }
@@ -504,7 +596,9 @@ impl App {
             ApiResponse::ArtistUnfollowed { artist_id } => {
                 self.artists.items.retain(|a| a.id != artist_id);
                 self.artists.total = self.artists.total.saturating_sub(1);
-                self.artists.selected = self.artists.selected
+                self.artists.selected = self
+                    .artists
+                    .selected
                     .min(self.artists.items.len().saturating_sub(1));
             }
 
@@ -518,13 +612,17 @@ impl App {
 
             ApiResponse::SearchedArtists(artists) => {
                 if let Some(search_query) = self.artist_selection.searching_for.take() {
-                    let exact_match: Option<Artist> = artists.into_iter()
+                    let exact_match: Option<Artist> = artists
+                        .into_iter()
                         .find(|a| a.name.to_lowercase() == search_query.to_lowercase());
 
                     if let Some(artist) = exact_match {
                         self.open_artist(artist);
                     } else {
-                        self.set_status(format!("Artist '{}' not found", search_query), StatusLevel::Error);
+                        self.set_status(
+                            format!("Artist '{}' not found", search_query),
+                            StatusLevel::Error,
+                        );
                     }
                 }
             }
@@ -550,7 +648,9 @@ impl App {
                     if let Some(track_id_str) = msg.split("track ").last() {
                         if let Ok(track_id) = track_id_str.parse::<u64>() {
                             // Look for this track in the queue
-                            if let Some(track) = self.now_playing.queue.iter().find(|t| t.id == track_id) {
+                            if let Some(track) =
+                                self.now_playing.queue.iter().find(|t| t.id == track_id)
+                            {
                                 format!("No stream available for \"{}\"", track.title)
                             } else {
                                 msg.clone()
@@ -602,14 +702,22 @@ impl App {
             PlayerEvent::TrackEnded => {
                 if self.now_playing.queue_index + 1 < self.now_playing.queue.len() {
                     self.now_playing.queue_index += 1;
-                    self.now_playing.track =
-                        self.now_playing.queue.get(self.now_playing.queue_index).cloned();
+                    self.now_playing.track = self
+                        .now_playing
+                        .queue
+                        .get(self.now_playing.queue_index)
+                        .cloned();
                     let next_idx = self.now_playing.queue_index + 1;
                     if let Some(next) = self.now_playing.queue.get(next_idx) {
-                        let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl { track_id: next.id });
+                        let _ = self
+                            .api_tx
+                            .send(ApiRequest::ResolveStreamUrl { track_id: next.id });
                     }
-                    if let Some(current) = self.now_playing.queue.get(self.now_playing.queue_index) {
-                        let _ = self.api_tx.send(ApiRequest::GetTrackDetails { track_id: current.id });
+                    if let Some(current) = self.now_playing.queue.get(self.now_playing.queue_index)
+                    {
+                        let _ = self.api_tx.send(ApiRequest::GetTrackDetails {
+                            track_id: current.id,
+                        });
                     }
                     self.fetch_now_playing_metadata();
                 } else {
@@ -618,8 +726,10 @@ impl App {
                 }
                 self.now_playing.position = 0.0;
             }
-            PlayerEvent::Position(p)  => {
-                if !self.now_playing.active { return; }
+            PlayerEvent::Position(p) => {
+                if !self.now_playing.active {
+                    return;
+                }
                 // Only accept position updates that move forward (with 10ms tolerance for jitter).
                 // This prevents the audio widget from showing position going backward.
                 if p >= self.now_playing.position - 0.01 {
@@ -627,14 +737,21 @@ impl App {
                     self.push_mpris_state();
                 }
             }
-            PlayerEvent::Duration(d)  => {
-                if !self.now_playing.active { return; }
+            PlayerEvent::Duration(d) => {
+                if !self.now_playing.active {
+                    return;
+                }
                 self.now_playing.duration = d;
                 // Send track to Last.fm once when we first learn the duration
                 if !self.now_playing.lastfm_sent && d > 0.0 {
                     if let Some(track) = &self.now_playing.track {
                         let artist_names = if !track.artists.is_empty() {
-                            track.artists.iter().map(|a| a.name.clone()).collect::<Vec<_>>().join(", ")
+                            track
+                                .artists
+                                .iter()
+                                .map(|a| a.name.clone())
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         } else if let Some(ref artist) = track.artist {
                             artist.name.clone()
                         } else {
@@ -642,18 +759,20 @@ impl App {
                         };
                         let album = Some(track.album.title.clone());
 
-                        let _ = self.lastfm_tx.send(crate::lastfm::LastfmCmd::UpdatePlayingTrack {
-                            track_id: track.id,
-                            artist: artist_names,
-                            track_name: track.title.clone(),
-                            album,
-                            duration: d,
-                        });
+                        let _ = self
+                            .lastfm_tx
+                            .send(crate::lastfm::LastfmCmd::UpdatePlayingTrack {
+                                track_id: track.id,
+                                artist: artist_names,
+                                track_name: track.title.clone(),
+                                album,
+                                duration: d,
+                            });
                         self.now_playing.lastfm_sent = true;
                     }
                 }
             }
-            PlayerEvent::Paused(p)    => {
+            PlayerEvent::Paused(p) => {
                 // Only send pause/resume command if state actually changed
                 if self.now_playing.paused != p {
                     if p {
@@ -665,12 +784,16 @@ impl App {
                 self.now_playing.paused = p;
                 self.push_mpris_state();
             }
-            PlayerEvent::SampleRate(r) => { self.now_playing.sample_rate = Some(r); }
-            PlayerEvent::Codec(c)     => { self.now_playing.codec = Some(c); }
-            PlayerEvent::Error(e)     => {
+            PlayerEvent::SampleRate(r) => {
+                self.now_playing.sample_rate = Some(r);
+            }
+            PlayerEvent::Codec(c) => {
+                self.now_playing.codec = Some(c);
+            }
+            PlayerEvent::Error(e) => {
                 self.set_status(format!("Player: {e}"), StatusLevel::Error);
             }
-            PlayerEvent::CurrVolume(v) => { self.now_playing.volume = v}
+            PlayerEvent::CurrVolume(v) => self.now_playing.volume = v,
         }
     }
 }

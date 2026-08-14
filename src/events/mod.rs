@@ -17,16 +17,16 @@ use crate::mpris::MprisCmd;
 use crate::player::{PlayerCmd, PlayerEvent};
 
 mod global;
+mod navigation;
 mod overlays;
 mod queue;
 mod search;
-mod navigation;
 
 use global::*;
+use navigation::*;
 use overlays::*;
 use queue::*;
 use search::*;
-use navigation::*;
 
 pub fn run_app(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
@@ -58,9 +58,12 @@ pub fn run_app(
                 MprisCmd::Play => app.set_paused(false),
                 MprisCmd::Pause => app.set_paused(true),
                 MprisCmd::PlayPause => app.toggle_pause(),
-                MprisCmd::Stop => { let _ = app.player_tx.send(PlayerCmd::Stop); }
+                MprisCmd::Stop => {
+                    let _ = app.player_tx.send(PlayerCmd::Stop);
+                }
             }
         }
+
 
         // Drain self-update channel: availability check result + install result
         while let Ok(()) = app.checking_rx.try_recv() {
@@ -72,9 +75,6 @@ pub fn run_app(
         while let Ok(result) = app.update_result_rx.try_recv() {
             app.set_update_result(result);
         }
-
-        // Check for more data to load
-        check_load_more(app);
 
         app.tick();
 
@@ -195,4 +195,3 @@ fn handle_update_input(app: &mut App, key: KeyEvent) {
         },
     }
 }
-

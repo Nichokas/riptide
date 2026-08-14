@@ -98,20 +98,34 @@ self.delete_openapi_json("/userCollection{Type}/me/relationships/items", &body).
 
 ### Pagination
 
-**CRITICAL: Tidal API v2 does NOT support `page[size]` parameters.**
+**CRITICAL: Tidal API v2 ignores `page[size]`, `limit` and `offset`.**
 
-- Fixed result count per request (typically 40 for initial, 20 for pagination)
+Verified live against `/playlists/{id}`: `offset=0`, `offset=20` and no offset
+at all return byte-identical pages. The server picks the batch size; the only
+way to advance is the cursor.
+
 - Uses cursor-based pagination with `page[cursor]` parameter
 - Response includes `nextCursor` in meta/links for subsequent pages
 - Always include `include` parameters on pagination requests to get full objects
+- Never add a `limit`/`offset` argument to a request type — it cannot do anything
 
-**Pattern:**
-```rust
-let min_items = if next_link.is_none() { 40 } else { 20 };
-// Use cursor-based pagination, not offset-based
-```
+### Everything Loads Upfront — There Is No Lazy Loading
 
-See memory: `pagination_strategy.md` and `tidal_api_pagination.md` for full details.
+Lists are fetched in full before they reach the UI. Two mechanisms do this:
+
+1. **Client drains internally** — `while let Some(url) = next_url` inside the
+   client method, returning the whole collection in one `ApiResponse`. Used by
+   favourites, artists, artist detail (top tracks/albums/EPs/singles), album
+   tracks. These requests carry no cursor, so **a second request refetches
+   everything from the start** — the response handler must set
+   `exhausted = true`.
+2. **Handler re-fires the next page** — `ApiResponse` handlers for fav albums,
+   playlist detail and search immediately request the next cursor page until
+   exhausted, without waiting for the user to scroll.
+
+Scroll-triggered loading was removed: `should_load_more()`, `check_load_more()`
+and `StatefulList::next_offset` no longer exist. Do not reintroduce them.
+`exhausted` means "the app must not request more", not "the API has no more".
 
 ## Git & Commit Preferences
 
@@ -172,8 +186,8 @@ GOOD
 
 ### Pagination in Lists
 - Use `StatefulList<T>` with `pagination_cursor: Option<String>` field
-- Load initial: 40 items, subsequent pages: 20 items
-- Implement `should_load_more()` pattern for scroll-based loading
+- Let the server choose the batch size; never pass a count
+- Chain the next page from the response handler, not from a scroll event
 
 ### UI Patterns
 - Use `ListViewport` for scroll management (interior mutability with Cell)
@@ -237,7 +251,7 @@ GOOD
 
 ### State Management
 - StatefulList manages both UI selection and API pagination state
-- Separate pagination_cursor for API pagination vs next_offset for UI display
+- `pagination_cursor` carries the API cursor; there is no offset counterpart
 - Views on stack (ArtistDetail, PlaylistDetail, AlbumDetail) maintain independent state
 
 ### API Response Handling
@@ -259,35 +273,13 @@ Everything else now targets openapi.tidal.com/v2. The v1 helpers that used to
 back the migrated endpoints (`get`, `post_form`, `delete`, `uid`) have been
 deleted; `const BASE` survives solely for `get_stream_url`.
 
-### Pagination Refactoring Opportunities
+### Pagination Refactoring — Done
 
-**Problem:** Pagination logic repeated 4+ times across `loading.rs` and `responses.rs` with inconsistent batch sizes.
-
-**Current Implementation Pattern (Duplicated):**
-```rust
-// In loading.rs - repeated 4+ times
-if self.list.loading || self.list.exhausted { return; }
-self.list.loading = true;
-let _ = self.api_tx.send(ApiRequest::LoadXxx { offset: self.list.next_offset });
-
-// In responses.rs - repeated 4+ times  
-ApiResponse::Xxx(items, total) => {
-    self.xxx.append(items, total);
-    if self.xxx_sort.is_none() {
-        self.xxx.items.sort_by(...);
-    }
-}
-```
-
-**Batch Size Inconsistencies (verified on `create-agent-directives`, `src/api/mod.rs` / `client.rs`):**
-- `get_favorite_artists`: 50 items offset-based (`mod.rs:142` → `get_favorite_artists(offset, 50)`)
-- `get_favorite_tracks`: 50 items offset-based (`mod.rs:191` → `get_favorite_tracks(offset, 50)`)
-- `get_favorite_albums`: cursor-based v2 (`mod.rs:184` → `LoadFavAlbums { next_url }` → `client.rs:1787`, API default ~40 initial / 20 paginated via `pagination_cursor`)
-- `get_favorite_playlists` + `get_user_collection_playlists`: cursor-based v2 merged in `mod.rs:154-184` (no fixed limit)
-- Artist catalog (`get_artist_top_tracks` `:1422`, `get_artist_albums` `:1466`, `get_artist_eps` `:1514`, `get_artist_singles` `:1558`): internal `while next_url` full fetch, no caller-side limit
-- `get_album_tracks` `:2135`, `get_playlist_tracks` etc.: cursor-based via `pagination_cursor`
-
-**Refactoring Opportunity:** Create centralized pagination helper with configurable limits (offset vs cursor)
+The duplicated scroll-triggered loading this section used to describe is gone.
+`should_load_more()`, `check_load_more()`, `next_offset` and the per-list
+`load_more_*` helpers were deleted once every list moved to upfront loading;
+`ApiRequest` variants no longer carry `offset`. See "Everything Loads Upfront"
+above before adding anything back here.
 
 ### Code Duplication & Standardization Opportunities
 
@@ -333,7 +325,6 @@ ApiResponse::Xxx(items, total) => {
 
 | Helper | Impact | Effort | Files Affected | Lines Saved | Priority |
 |--------|--------|--------|-----------------|------------|----------|
-| Pagination | High | Medium | loading.rs, responses.rs | 40+ | **P0** |
 | Query Param Builder | High | Low | client.rs (4 places) | 60+ | **P0** |
 | Error Parser | Medium | Low | client.rs (2 places) | 20+ | P1 |
 | Collection Manager | Medium | Low | responses.rs (4 places) | 30+ | P1 |
@@ -347,7 +338,7 @@ ApiResponse::Xxx(items, total) => {
    - Low effort, high code clarity improvement
    - Estimated: 2-3 hours
 
-2. **Phase 2 (Core Stability):** Pagination helper + Collection manager
+2. **Phase 2 (Core Stability):** Collection manager + deduplication
    - Medium effort, eliminates major duplication
    - Estimated: 4-5 hours
 
