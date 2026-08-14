@@ -44,15 +44,21 @@ impl App {
             }
 
             ApiResponse::AlbumUnfavorited { album_id } => {
-                if self.suppressed_album_removals.remove(&album_id) {
-                    self.pending_album_removals.remove(&album_id);
+                if let Some(pos) = self.suppressed_album_removals.iter().position(|&x| x == album_id) {
+                    self.suppressed_album_removals.remove(pos);
+                    if let Some(pos) = self.pending_album_removals.iter().position(|&x| x == album_id) {
+                        self.pending_album_removals.remove(pos);
+                    }
                     self.favorite_album_ids.insert(album_id);
-                    if self.pending_refavorite_albums.remove(&album_id) {
+                    if let Some(pos) = self.pending_refavorite_albums.iter().position(|&x| x == album_id) {
+                        self.pending_refavorite_albums.remove(pos);
                         let _ = self.api_tx.send(ApiRequest::FavoriteAlbum { album_id });
                     }
                     return;
                 }
-                self.pending_album_removals.remove(&album_id);
+                if let Some(pos) = self.pending_album_removals.iter().position(|&x| x == album_id) {
+                    self.pending_album_removals.remove(pos);
+                }
                 let before = self.fav_albums.items.len();
                 self.fav_albums.items.retain(|a| a.id != album_id);
                 if self.fav_albums.items.len() != before {
@@ -506,15 +512,21 @@ impl App {
             ApiResponse::FavoriteAdded | ApiResponse::ArtistFollowed => {}
 
             ApiResponse::FavoriteRemoved { track_id } => {
-                if self.suppressed_track_removals.remove(&track_id) {
-                    self.pending_track_removals.remove(&track_id);
+                if let Some(pos) = self.suppressed_track_removals.iter().position(|&x| x == track_id) {
+                    self.suppressed_track_removals.remove(pos);
+                    if let Some(pos) = self.pending_track_removals.iter().position(|&x| x == track_id) {
+                        self.pending_track_removals.remove(pos);
+                    }
                     self.favorite_track_ids.insert(track_id);
-                    if self.pending_refavorite_tracks.remove(&track_id) {
+                    if let Some(pos) = self.pending_refavorite_tracks.iter().position(|&x| x == track_id) {
+                        self.pending_refavorite_tracks.remove(pos);
                         let _ = self.api_tx.send(ApiRequest::FavoriteTrack { track_id });
                     }
                     return;
                 }
-                self.pending_track_removals.remove(&track_id);
+                if let Some(pos) = self.pending_track_removals.iter().position(|&x| x == track_id) {
+                    self.pending_track_removals.remove(pos);
+                }
                 let before = self.favorites.items.len();
                 self.favorites.items.retain(|t| t.id != track_id);
                 if self.favorites.items.len() != before {

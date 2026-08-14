@@ -63,14 +63,18 @@ impl App {
                 self.favorites.selected = 0;
             }
             self.rebuild_favorite_track_ids();
-            self.pending_track_removals.insert(removed.id);
+            if !self.pending_track_removals.contains(&removed.id) {
+                self.pending_track_removals.push(removed.id);
+            }
             let _ = self.api_tx.send(ApiRequest::UnfavoriteTrack { track_id: removed.id });
             self.set_status(format!("Removed '{}' — press 'u' to undo", removed.title), StatusLevel::Info);
         } else {
             let track_clone = track.clone();
             self.undo_entry = Some(crate::app::UndoEntry::Track { track: track_clone.clone(), index: 0 });
             self.favorites.total = self.favorites.total.saturating_sub(1);
-            self.pending_track_removals.insert(track.id);
+            if !self.pending_track_removals.contains(&track.id) {
+                self.pending_track_removals.push(track.id);
+            }
             let _ = self.api_tx.send(ApiRequest::UnfavoriteTrack { track_id: track.id });
             self.set_status(format!("Removed '{}' — press 'u' to undo", track.title), StatusLevel::Info);
             self.rebuild_favorite_track_ids();
@@ -97,8 +101,12 @@ impl App {
                     .min(self.favorites.items.len().saturating_sub(1));
                 self.rebuild_favorite_track_ids();
                 if self.pending_track_removals.contains(&id) {
-                    self.suppressed_track_removals.insert(id);
-                    self.pending_refavorite_tracks.insert(id);
+                    if !self.suppressed_track_removals.contains(&id) {
+                        self.suppressed_track_removals.push(id);
+                    }
+                    if !self.pending_refavorite_tracks.contains(&id) {
+                        self.pending_refavorite_tracks.push(id);
+                    }
                 } else {
                     let _ = self.api_tx.send(ApiRequest::FavoriteTrack { track_id: id });
                 }
@@ -118,8 +126,12 @@ impl App {
                     .min(self.fav_albums.items.len().saturating_sub(1));
                 self.rebuild_favorite_album_ids();
                 if self.pending_album_removals.contains(&id) {
-                    self.suppressed_album_removals.insert(id);
-                    self.pending_refavorite_albums.insert(id);
+                    if !self.suppressed_album_removals.contains(&id) {
+                        self.suppressed_album_removals.push(id);
+                    }
+                    if !self.pending_refavorite_albums.contains(&id) {
+                        self.pending_refavorite_albums.push(id);
+                    }
                 } else {
                     let _ = self.api_tx.send(ApiRequest::FavoriteAlbum { album_id: id });
                 }
@@ -203,14 +215,18 @@ impl App {
                 self.fav_albums.selected = 0;
             }
             self.rebuild_favorite_album_ids();
-            self.pending_album_removals.insert(removed.id);
+            if !self.pending_album_removals.contains(&removed.id) {
+                self.pending_album_removals.push(removed.id);
+            }
             let _ = self.api_tx.send(ApiRequest::UnfavoriteAlbum { album_id: removed.id });
             self.set_status(format!("Removed '{}' — press 'u' to undo", removed.title), StatusLevel::Info);
         } else {
             let album_clone = album.clone();
             self.undo_entry = Some(crate::app::UndoEntry::Album { album: album_clone.clone(), index: 0 });
             self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
-            self.pending_album_removals.insert(album.id);
+            if !self.pending_album_removals.contains(&album.id) {
+                self.pending_album_removals.push(album.id);
+            }
             let _ = self.api_tx.send(ApiRequest::UnfavoriteAlbum { album_id: album.id });
             self.set_status(format!("Removed '{}' — press 'u' to undo", album.title), StatusLevel::Info);
             self.rebuild_favorite_album_ids();
