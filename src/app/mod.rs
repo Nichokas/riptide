@@ -61,10 +61,23 @@ pub struct App {
     /// (message, level, Instant when set) — cleared automatically after ~5 s
     pub status: Option<(String, StatusLevel, std::time::Instant)>,
 
+    pub undo_entry: Option<UndoEntry>,
+    pub pending_track_removals: HashSet<u64>,
+    pub pending_album_removals: HashSet<u64>,
+    pub suppressed_track_removals: HashSet<u64>,
+    pub suppressed_album_removals: HashSet<u64>,
+    pub pending_refavorite_tracks: HashSet<u64>,
+    pub pending_refavorite_albums: HashSet<u64>,
+
     pub api_tx:    mpsc::UnboundedSender<ApiRequest>,
     pub player_tx: mpsc::UnboundedSender<PlayerCmd>,
     pub mpris_tx:  watch::Sender<MprisState>,
     pub lastfm_tx: mpsc::UnboundedSender<LastfmCmd>,
+}
+
+pub enum UndoEntry {
+    Track { track: Track, index: usize },
+    Album { album: Album, index: usize },
 }
 
 impl App {
@@ -116,6 +129,13 @@ impl App {
             help_scroll: 0,
             tick:   0,
             status: None,
+            undo_entry: None,
+            pending_track_removals: HashSet::new(),
+            pending_album_removals: HashSet::new(),
+            suppressed_track_removals: HashSet::new(),
+            suppressed_album_removals: HashSet::new(),
+            pending_refavorite_tracks: HashSet::new(),
+            pending_refavorite_albums: HashSet::new(),
             api_tx,
             player_tx,
             mpris_tx,

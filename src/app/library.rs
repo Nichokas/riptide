@@ -30,16 +30,101 @@ impl App {
         self.set_status(format!("Added '{}' to favorites", track.title), StatusLevel::Info);
     }
 
+    #[allow(dead_code)]
     fn unfavorite_track(&mut self, track: &Track) {
         let _ = self.api_tx.send(ApiRequest::UnfavoriteTrack { track_id: track.id });
         self.set_status(format!("Removed '{}' from favorites", track.title), StatusLevel::Info);
     }
 
     pub fn toggle_favorite_track(&mut self, track: &Track) {
-        if self.favorites.items.iter().any(|t| t.id == track.id) {
-            self.unfavorite_track(track);
+        if self.favorite_track_ids.contains(&track.id) {
+            self.set_status(
+                format!("'{}' is already a favorite — press 'd' to remove, 'u' to undo", track.title),
+                StatusLevel::Info,
+            );
+            return;
+        }
+        self.favorite_track(track);
+    }
+
+    pub fn remove_favorite_track_with_undo(&mut self, track: &Track) {
+        if !self.favorite_track_ids.contains(&track.id) {
+            return;
+        }
+        if let Some(idx) = self.favorites.items.iter().position(|t| t.id == track.id) {
+            let removed = self.favorites.items.remove(idx);
+            self.undo_entry = Some(crate::app::UndoEntry::Track { track: removed.clone(), index: idx });
+            self.favorites.total = self.favorites.total.saturating_sub(1);
+            if self.favorites.selected > idx {
+                self.favorites.selected = self.favorites.selected.saturating_sub(1);
+            } else if self.favorites.selected >= self.favorites.items.len() && !self.favorites.items.is_empty() {
+                self.favorites.selected = self.favorites.items.len() - 1;
+            } else if self.favorites.items.is_empty() {
+                self.favorites.selected = 0;
+            }
+            self.rebuild_favorite_track_ids();
+            self.pending_track_removals.insert(removed.id);
+            let _ = self.api_tx.send(ApiRequest::UnfavoriteTrack { track_id: removed.id });
+            self.set_status(format!("Removed '{}' — press 'u' to undo", removed.title), StatusLevel::Info);
         } else {
-            self.favorite_track(track);
+            let track_clone = track.clone();
+            self.undo_entry = Some(crate::app::UndoEntry::Track { track: track_clone.clone(), index: 0 });
+            self.favorites.total = self.favorites.total.saturating_sub(1);
+            self.pending_track_removals.insert(track.id);
+            let _ = self.api_tx.send(ApiRequest::UnfavoriteTrack { track_id: track.id });
+            self.set_status(format!("Removed '{}' — press 'u' to undo", track.title), StatusLevel::Info);
+            self.rebuild_favorite_track_ids();
+        }
+    }
+
+    pub fn undo_last(&mut self) {
+        let Some(entry) = self.undo_entry.take() else {
+            self.set_status("Nothing to undo".to_string(), StatusLevel::Info);
+            return;
+        };
+        match entry {
+            crate::app::UndoEntry::Track { track, index } => {
+                let id = track.id;
+                let title = track.title.clone();
+                let len_before = self.favorites.items.len();
+                let insert_at = index.min(len_before);
+                self.favorites.items.insert(insert_at, track);
+                self.favorites.total = self.favorites.total.saturating_add(1);
+                if len_before > 0 && insert_at <= self.favorites.selected {
+                    self.favorites.selected = self.favorites.selected.saturating_add(1);
+                }
+                self.favorites.selected = self.favorites.selected
+                    .min(self.favorites.items.len().saturating_sub(1));
+                self.rebuild_favorite_track_ids();
+                if self.pending_track_removals.contains(&id) {
+                    self.suppressed_track_removals.insert(id);
+                    self.pending_refavorite_tracks.insert(id);
+                } else {
+                    let _ = self.api_tx.send(ApiRequest::FavoriteTrack { track_id: id });
+                }
+                self.set_status(format!("Restored '{title}'"), StatusLevel::Info);
+            }
+            crate::app::UndoEntry::Album { album, index } => {
+                let id = album.id;
+                let title = album.title.clone();
+                let len_before = self.fav_albums.items.len();
+                let insert_at = index.min(len_before);
+                self.fav_albums.items.insert(insert_at, album);
+                self.fav_albums.total = self.fav_albums.total.saturating_add(1);
+                if len_before > 0 && insert_at <= self.fav_albums.selected {
+                    self.fav_albums.selected = self.fav_albums.selected.saturating_add(1);
+                }
+                self.fav_albums.selected = self.fav_albums.selected
+                    .min(self.fav_albums.items.len().saturating_sub(1));
+                self.rebuild_favorite_album_ids();
+                if self.pending_album_removals.contains(&id) {
+                    self.suppressed_album_removals.insert(id);
+                    self.pending_refavorite_albums.insert(id);
+                } else {
+                    let _ = self.api_tx.send(ApiRequest::FavoriteAlbum { album_id: id });
+                }
+                self.set_status(format!("Restored '{title}'"), StatusLevel::Info);
+            }
         }
     }
 
@@ -80,20 +165,55 @@ impl App {
             self.fav_albums.items.insert(0, album.clone());
             self.fav_albums.total = self.fav_albums.total.saturating_add(1);
             self.fav_albums.selected = self.fav_albums.selected.saturating_add(1);
+            self.rebuild_favorite_album_ids();
         }
         self.set_status(format!("Added '{}' to albums", album.title), StatusLevel::Info);
     }
 
+    #[allow(dead_code)]
     fn unfavorite_album(&mut self, album: &Album) {
         let _ = self.api_tx.send(ApiRequest::UnfavoriteAlbum { album_id: album.id });
         self.set_status(format!("Removed '{}' from albums", album.title), StatusLevel::Info);
     }
 
     pub fn toggle_favorite_album(&mut self, album: &Album) {
-        if self.fav_albums.items.iter().any(|a| a.id == album.id) {
-            self.unfavorite_album(album);
+        if self.favorite_album_ids.contains(&album.id) {
+            self.set_status(
+                format!("'{}' is already a favorite — press 'd' to remove, 'u' to undo", album.title),
+                StatusLevel::Info,
+            );
+            return;
+        }
+        self.favorite_album(album);
+    }
+
+    pub fn remove_favorite_album_with_undo(&mut self, album: &Album) {
+        if !self.favorite_album_ids.contains(&album.id) {
+            return;
+        }
+        if let Some(idx) = self.fav_albums.items.iter().position(|a| a.id == album.id) {
+            let removed = self.fav_albums.items.remove(idx);
+            self.undo_entry = Some(crate::app::UndoEntry::Album { album: removed.clone(), index: idx });
+            self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
+            if self.fav_albums.selected > idx {
+                self.fav_albums.selected = self.fav_albums.selected.saturating_sub(1);
+            } else if self.fav_albums.selected >= self.fav_albums.items.len() && !self.fav_albums.items.is_empty() {
+                self.fav_albums.selected = self.fav_albums.items.len() - 1;
+            } else if self.fav_albums.items.is_empty() {
+                self.fav_albums.selected = 0;
+            }
+            self.rebuild_favorite_album_ids();
+            self.pending_album_removals.insert(removed.id);
+            let _ = self.api_tx.send(ApiRequest::UnfavoriteAlbum { album_id: removed.id });
+            self.set_status(format!("Removed '{}' — press 'u' to undo", removed.title), StatusLevel::Info);
         } else {
-            self.favorite_album(album);
+            let album_clone = album.clone();
+            self.undo_entry = Some(crate::app::UndoEntry::Album { album: album_clone.clone(), index: 0 });
+            self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
+            self.pending_album_removals.insert(album.id);
+            let _ = self.api_tx.send(ApiRequest::UnfavoriteAlbum { album_id: album.id });
+            self.set_status(format!("Removed '{}' — press 'u' to undo", album.title), StatusLevel::Info);
+            self.rebuild_favorite_album_ids();
         }
     }
 

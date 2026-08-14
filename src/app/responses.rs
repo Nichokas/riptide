@@ -44,10 +44,22 @@ impl App {
             }
 
             ApiResponse::AlbumUnfavorited { album_id } => {
+                if self.suppressed_album_removals.remove(&album_id) {
+                    self.pending_album_removals.remove(&album_id);
+                    self.favorite_album_ids.insert(album_id);
+                    if self.pending_refavorite_albums.remove(&album_id) {
+                        let _ = self.api_tx.send(ApiRequest::FavoriteAlbum { album_id });
+                    }
+                    return;
+                }
+                self.pending_album_removals.remove(&album_id);
+                let before = self.fav_albums.items.len();
                 self.fav_albums.items.retain(|a| a.id != album_id);
-                self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
-                self.fav_albums.selected = self.fav_albums.selected
-                    .min(self.fav_albums.items.len().saturating_sub(1));
+                if self.fav_albums.items.len() != before {
+                    self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
+                    self.fav_albums.selected = self.fav_albums.selected
+                        .min(self.fav_albums.items.len().saturating_sub(1));
+                }
                 self.favorite_album_ids.remove(&album_id);
             }
 
@@ -494,10 +506,22 @@ impl App {
             ApiResponse::FavoriteAdded | ApiResponse::ArtistFollowed => {}
 
             ApiResponse::FavoriteRemoved { track_id } => {
+                if self.suppressed_track_removals.remove(&track_id) {
+                    self.pending_track_removals.remove(&track_id);
+                    self.favorite_track_ids.insert(track_id);
+                    if self.pending_refavorite_tracks.remove(&track_id) {
+                        let _ = self.api_tx.send(ApiRequest::FavoriteTrack { track_id });
+                    }
+                    return;
+                }
+                self.pending_track_removals.remove(&track_id);
+                let before = self.favorites.items.len();
                 self.favorites.items.retain(|t| t.id != track_id);
-                self.favorites.total = self.favorites.total.saturating_sub(1);
-                self.favorites.selected = self.favorites.selected
-                    .min(self.favorites.items.len().saturating_sub(1));
+                if self.favorites.items.len() != before {
+                    self.favorites.total = self.favorites.total.saturating_sub(1);
+                    self.favorites.selected = self.favorites.selected
+                        .min(self.favorites.items.len().saturating_sub(1));
+                }
                 self.rebuild_favorite_track_ids();
             }
 
@@ -545,6 +569,23 @@ impl App {
             }
 
             ApiResponse::Error(msg) => {
+                if msg.contains("unfavorite") {
+                    if msg.contains("album") {
+                        self.pending_album_removals.clear();
+                        self.suppressed_album_removals.clear();
+                        self.pending_refavorite_albums.clear();
+                    } else {
+                        self.pending_track_removals.clear();
+                        self.suppressed_track_removals.clear();
+                        self.pending_refavorite_tracks.clear();
+                    }
+                } else if msg.contains("favorite:") || msg.contains("favorite album:") {
+                    if msg.contains("album") {
+                        self.pending_refavorite_albums.clear();
+                    } else {
+                        self.pending_refavorite_tracks.clear();
+                    }
+                }
                 let display_msg = if msg.contains("no stream URL available for track") {
                     // Try to enhance the error message with track name
                     if let Some(track_id_str) = msg.split("track ").last() {

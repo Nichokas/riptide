@@ -21,11 +21,14 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
         ToggleFavoriteTrack(crate::api::models::Track),
         ToggleFollowArtist(crate::api::models::Artist),
         ToggleFavoriteAlbum(crate::api::models::Album),
+        RemoveFavoriteTrack(crate::api::models::Track),
+        RemoveFavoriteAlbum(crate::api::models::Album),
         TrackRadio(crate::api::models::Track),
         ArtistRadio(crate::api::models::Artist),
         FocusQueue,
         PlayPlaylistTracks(Vec<crate::api::models::Track>, usize, String),
         CopyUrl(String),
+        Undo,
     }
 
     let action: Action = if let Some(view) = app.view_stack.last_mut() {
@@ -144,6 +147,26 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
                         }
                     }
                     KeyCode::Char('f') => Action::ToggleFollowArtist(detail.artist.clone()),
+                    KeyCode::Char('d') | KeyCode::Delete => match detail.focus {
+                        ArtistDetailFocus::Tracks => match detail.tracks.items.get(detail.tracks.selected).cloned() {
+                            Some(t) => Action::RemoveFavoriteTrack(t),
+                            None => return,
+                        },
+                        ArtistDetailFocus::Albums => match detail.albums.items.get(detail.albums.selected).cloned() {
+                            Some(a) => Action::RemoveFavoriteAlbum(a),
+                            None => return,
+                        },
+                        ArtistDetailFocus::EPs => match detail.eps.items.get(detail.eps.selected).cloned() {
+                            Some(a) => Action::RemoveFavoriteAlbum(a),
+                            None => return,
+                        },
+                        ArtistDetailFocus::Singles => match detail.singles.items.get(detail.singles.selected).cloned() {
+                            Some(a) => Action::RemoveFavoriteAlbum(a),
+                            None => return,
+                        },
+                        ArtistDetailFocus::Bio => return,
+                    },
+                    KeyCode::Char('u') => Action::Undo,
                     KeyCode::Char('r') if detail.focus == ArtistDetailFocus::Tracks => {
                         match detail.tracks.items.get(detail.tracks.selected).cloned() {
                             Some(t) => Action::TrackRadio(t),
@@ -275,6 +298,17 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
                             return;
                         }
                     }
+                    KeyCode::Char('d') | KeyCode::Delete => {
+                        if detail.focus == PlaylistDetailFocus::Tracks {
+                            match detail.tracks.items.get(detail.tracks.selected).cloned() {
+                                Some(t) => Action::RemoveFavoriteTrack(t),
+                                None => return,
+                            }
+                        } else {
+                            return;
+                        }
+                    }
+                    KeyCode::Char('u') => Action::Undo,
                     KeyCode::Char('r') => {
                         if detail.focus == PlaylistDetailFocus::Tracks {
                             match detail.tracks.items.get(detail.tracks.selected).cloned() {
@@ -330,6 +364,13 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
                             None => return,
                         }
                     }
+                    KeyCode::Char('d') | KeyCode::Delete => {
+                        match detail.tracks.items.get(detail.tracks.selected).cloned() {
+                            Some(t) => Action::RemoveFavoriteTrack(t),
+                            None => return,
+                        }
+                    }
+                    KeyCode::Char('u') => Action::Undo,
                     KeyCode::Char('r') => {
                         match detail.tracks.items.get(detail.tracks.selected).cloned() {
                             Some(t) => Action::TrackRadio(t),
@@ -359,11 +400,14 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
         Action::ToggleFavoriteTrack(track) => { app.toggle_favorite_track(&track); return; }
         Action::ToggleFollowArtist(artist) => { app.toggle_follow_artist(&artist); return; }
         Action::ToggleFavoriteAlbum(album) => { app.toggle_favorite_album(&album); return; }
+        Action::RemoveFavoriteTrack(track) => { app.remove_favorite_track_with_undo(&track); return; }
+        Action::RemoveFavoriteAlbum(album) => { app.remove_favorite_album_with_undo(&album); return; }
         Action::TrackRadio(track) => { app.start_track_radio(&track); return; }
         Action::ArtistRadio(artist) => { app.start_artist_radio(&artist); return; }
         Action::FocusQueue => { app.focus_queue(); return; }
         Action::PlayPlaylistTracks(tracks, idx, uuid) => { app.play_playlist_tracks(tracks, idx, uuid); return; }
         Action::CopyUrl(url) => { app.copy_url(url); return; }
+        Action::Undo => { app.undo_last(); return; }
         Action::None => {}
     }
 
@@ -531,6 +575,25 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             }
             _ => {}
         },
+        KeyCode::Char('d') | KeyCode::Delete => match app.current_tab {
+            Tab::Favorites => {
+                if let Some(track) = app.favorites.selected_item().cloned() {
+                    app.remove_favorite_track_with_undo(&track);
+                }
+            }
+            Tab::Albums => {
+                if let Some(album) = app.fav_albums.selected_item().cloned() {
+                    app.remove_favorite_album_with_undo(&album);
+                }
+            }
+            Tab::Search if app.search.pane == SearchPane::Tracks => {
+                if let Some(track) = app.search.tracks.get(app.search.track_sel).cloned() {
+                    app.remove_favorite_track_with_undo(&track);
+                }
+            }
+            _ => {}
+        },
+        KeyCode::Char('u') => { app.undo_last(); },
         KeyCode::Char('c') => match app.current_tab {
             Tab::Artists => {
                 if let Some(url) = app.artists.selected_item().map(|a| a.share_url()) {
