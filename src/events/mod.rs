@@ -17,16 +17,16 @@ use crate::mpris::MprisCmd;
 use crate::player::{PlayerCmd, PlayerEvent};
 
 mod global;
+mod navigation;
 mod overlays;
 mod queue;
 mod search;
-mod navigation;
 
 use global::*;
+use navigation::*;
 use overlays::*;
 use queue::*;
 use search::*;
-use navigation::*;
 
 pub fn run_app(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
@@ -58,7 +58,9 @@ pub fn run_app(
                 MprisCmd::Play => app.set_paused(false),
                 MprisCmd::Pause => app.set_paused(true),
                 MprisCmd::PlayPause => app.toggle_pause(),
-                MprisCmd::Stop => { let _ = app.player_tx.send(PlayerCmd::Stop); }
+                MprisCmd::Stop => {
+                    let _ = app.player_tx.send(PlayerCmd::Stop);
+                }
             }
         }
 
@@ -133,4 +135,3 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         handle_navigation(app, key);
     }
 }
-

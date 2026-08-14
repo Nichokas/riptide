@@ -8,7 +8,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui_image::{picker::Picker, protocol::Protocol, Image, Resize};
+use ratatui_image::{Image, Resize, picker::Picker, protocol::Protocol};
 
 thread_local! {
     /// Cached terminal-image protocols, keyed by (image content, target size).

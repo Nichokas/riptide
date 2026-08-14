@@ -55,17 +55,22 @@ impl ListViewport {
     }
 
     pub(crate) fn previous_page(&self, selected: usize, len: usize) -> usize {
-        if len == 0 { return selected; }
+        if len == 0 {
+            return selected;
+        }
         let page_size = self.page_size();
         self.offset.set(self.offset.get().saturating_sub(page_size));
         selected.min(len - 1).saturating_sub(page_size)
     }
 
     pub(crate) fn next_page(&self, selected: usize, len: usize) -> usize {
-        if len == 0 { return selected; }
+        if len == 0 {
+            return selected;
+        }
         let page_size = self.page_size();
         self.offset.set(
-            self.offset.get()
+            self.offset
+                .get()
                 .saturating_add(page_size)
                 .min(len.saturating_sub(page_size)),
         );
@@ -89,16 +94,21 @@ impl<T> Default for StatefulList<T> {
 
 impl<T> StatefulList<T> {
     pub fn scroll_offset(&self, height: usize) -> usize {
-        self.viewport.offset(self.selected, self.items.len(), height)
+        self.viewport
+            .offset(self.selected, self.items.len(), height)
     }
 
     pub fn next(&mut self) {
-        if self.items.is_empty() { return; }
+        if self.items.is_empty() {
+            return;
+        }
         self.selected = (self.selected + 1).min(self.items.len() - 1);
     }
 
     pub fn prev(&mut self) {
-        if self.selected > 0 { self.selected -= 1; }
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
     }
 
     pub fn page_up(&mut self) {

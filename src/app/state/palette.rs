@@ -3,7 +3,6 @@
 
 //! Command palette and the artist-picker modal.
 
-
 // ── Artist selection modal ────────────────────────────────────────────────────
 
 pub struct ArtistSelection {
@@ -15,7 +14,12 @@ pub struct ArtistSelection {
 
 impl Default for ArtistSelection {
     fn default() -> Self {
-        Self { active: false, artist_names: Vec::new(), selected: 0, searching_for: None }
+        Self {
+            active: false,
+            artist_names: Vec::new(),
+            selected: 0,
+            searching_for: None,
+        }
     }
 }
 
@@ -29,7 +33,11 @@ pub struct CommandState {
 
 impl Default for CommandState {
     fn default() -> Self {
-        Self { active: false, input: String::new(), selected: 0 }
+        Self {
+            active: false,
+            input: String::new(),
+            selected: 0,
+        }
     }
 }
 
@@ -40,7 +48,8 @@ impl CommandState {
 
     pub fn matches(&self) -> Vec<&'static str> {
         let q = self.input.to_lowercase();
-        Self::COMMANDS.iter()
+        Self::COMMANDS
+            .iter()
             .filter(|&&c| c.starts_with(q.as_str()))
             .copied()
             .collect()

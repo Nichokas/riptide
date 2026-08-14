@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2025 Ryan Cohan
 
-mod state;
+mod library;
 mod loading;
 mod navigation;
 mod playback;
-mod library;
 mod responses;
+mod state;
 
-pub use state::*;
 pub use crate::playlist::{PlaylistDetail, PlaylistDetailFocus};
+pub use state::*;
 
-use std::collections::HashSet;
-use tokio::sync::{mpsc, watch};
 use crate::api::ApiRequest;
 use crate::api::models::{Album, Artist, Playlist, Track};
 use crate::lastfm::LastfmCmd;
 use crate::mpris::MprisState;
 use crate::player::PlayerCmd;
 use crate::search::SearchState;
+use std::collections::HashSet;
+use tokio::sync::{mpsc, watch};
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -32,26 +32,26 @@ pub struct App {
     pub home_discovery_mixes: HomeSection<Playlist>,
     pub home_section_focus: HomeSectionFocus,
 
-    pub artists:   StatefulList<Artist>,
+    pub artists: StatefulList<Artist>,
     pub fav_albums: StatefulList<Album>,
     pub playlists: StatefulList<Playlist>,
     pub favorites: StatefulList<Track>,
     pub favorite_track_ids: HashSet<u64>,
     pub favorite_album_ids: HashSet<u64>,
     pub favorite_artist_ids: HashSet<u64>,
-    pub search:    SearchState,
-    pub command:   CommandState,
-    pub sort_palette:  SortPalette,
+    pub search: SearchState,
+    pub command: CommandState,
+    pub sort_palette: SortPalette,
     pub artist_selection: ArtistSelection,
     pub tracks_sort: Option<SortField>,
-    pub artists_sort:   Option<SortField>,
+    pub artists_sort: Option<SortField>,
     pub fav_albums_sort: Option<SortField>,
     pub playlists_sort: Option<SortField>,
     pub now_playing: NowPlaying,
 
     pub queue_focused: bool,
     pub queue_visible: bool,
-    pub queue_cursor:  usize,
+    pub queue_cursor: usize,
     queue_viewport: ListViewport,
 
     pub help_active: bool,
@@ -61,43 +61,43 @@ pub struct App {
     /// (message, level, Instant when set) — cleared automatically after ~5 s
     pub status: Option<(String, StatusLevel, std::time::Instant)>,
 
-    pub api_tx:    mpsc::UnboundedSender<ApiRequest>,
+    pub api_tx: mpsc::UnboundedSender<ApiRequest>,
     pub player_tx: mpsc::UnboundedSender<PlayerCmd>,
-    pub mpris_tx:  watch::Sender<MprisState>,
+    pub mpris_tx: watch::Sender<MprisState>,
     pub lastfm_tx: mpsc::UnboundedSender<LastfmCmd>,
 }
 
 impl App {
     pub fn new(
-        api_tx:    mpsc::UnboundedSender<ApiRequest>,
+        api_tx: mpsc::UnboundedSender<ApiRequest>,
         player_tx: mpsc::UnboundedSender<PlayerCmd>,
-        mpris_tx:  watch::Sender<MprisState>,
+        mpris_tx: watch::Sender<MprisState>,
         lastfm_tx: mpsc::UnboundedSender<LastfmCmd>,
-        prefs:     Preferences,
+        prefs: Preferences,
     ) -> Self {
         let mut app = Self {
             should_quit: false,
             current_tab: Tab::Home,
-            view_stack:  Vec::new(),
+            view_stack: Vec::new(),
             home_new_releases: HomeSection::default(),
             home_daily_mixes: HomeSection::default(),
             home_discovery_mixes: HomeSection::default(),
             home_section_focus: HomeSectionFocus::default(),
-            artists:     StatefulList::default(),
-            fav_albums:  StatefulList::default(),
-            playlists:   StatefulList::default(),
-            favorites:   StatefulList::default(),
+            artists: StatefulList::default(),
+            fav_albums: StatefulList::default(),
+            playlists: StatefulList::default(),
+            favorites: StatefulList::default(),
             favorite_track_ids: HashSet::new(),
             favorite_album_ids: HashSet::new(),
             favorite_artist_ids: HashSet::new(),
-            search:      SearchState::default(),
-            command:     CommandState::default(),
-            sort_palette:    SortPalette::default(),
+            search: SearchState::default(),
+            command: CommandState::default(),
+            sort_palette: SortPalette::default(),
             artist_selection: ArtistSelection::default(),
-            tracks_sort:  prefs.tracks_sort,
-            artists_sort:    prefs.artists_sort,
+            tracks_sort: prefs.tracks_sort,
+            artists_sort: prefs.artists_sort,
             fav_albums_sort: prefs.fav_albums_sort,
-            playlists_sort:  prefs.playlists_sort,
+            playlists_sort: prefs.playlists_sort,
             now_playing: {
                 let mut np = NowPlaying::default();
                 // Load logo as default art
@@ -110,11 +110,11 @@ impl App {
             },
             queue_focused: false,
             queue_visible: prefs.queue_visible,
-            queue_cursor:  0,
+            queue_cursor: 0,
             queue_viewport: ListViewport::default(),
             help_active: false,
             help_scroll: 0,
-            tick:   0,
+            tick: 0,
             status: None,
             api_tx,
             player_tx,
@@ -157,12 +157,14 @@ impl App {
     }
 
     pub fn queue_page_up(&mut self) {
-        self.queue_cursor = self.queue_viewport
+        self.queue_cursor = self
+            .queue_viewport
             .previous_page(self.queue_cursor, self.now_playing.queue.len());
     }
 
     pub fn queue_page_down(&mut self) {
-        self.queue_cursor = self.queue_viewport
+        self.queue_cursor = self
+            .queue_viewport
             .next_page(self.queue_cursor, self.now_playing.queue.len());
     }
 
@@ -170,7 +172,11 @@ impl App {
         self.tick = self.tick.wrapping_add(1);
         if let Some((msg, _, set_at)) = &self.status {
             if set_at.elapsed() > std::time::Duration::from_secs(5) {
-                tracing::debug!("Clearing status after {:.1}s: {}", set_at.elapsed().as_secs_f64(), msg);
+                tracing::debug!(
+                    "Clearing status after {:.1}s: {}",
+                    set_at.elapsed().as_secs_f64(),
+                    msg
+                );
                 self.status = None;
             }
         }

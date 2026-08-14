@@ -5,9 +5,9 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::*;
 use crate::app::{App, View};
 use crate::player::PlayerCmd;
-use super::*;
 
 pub(super) fn kitty_delete_album_art() {
     if std::env::var("KITTY_WINDOW_ID").is_ok() {
@@ -56,8 +56,12 @@ pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
             app.command.selected = 0;
         }
         KeyCode::Tab => {
-            if leaving_album(app) { kitty_delete_album_art(); }
-            if leaving_artist(app) { kitty_delete_artist_art(); }
+            if leaving_album(app) {
+                kitty_delete_album_art();
+            }
+            if leaving_artist(app) {
+                kitty_delete_artist_art();
+            }
             if key.modifiers.contains(KeyModifiers::SHIFT) {
                 app.prev_tab();
             } else {
@@ -65,8 +69,12 @@ pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
             }
         }
         KeyCode::BackTab => {
-            if leaving_album(app) { kitty_delete_album_art(); }
-            if leaving_artist(app) { kitty_delete_artist_art(); }
+            if leaving_album(app) {
+                kitty_delete_album_art();
+            }
+            if leaving_artist(app) {
+                kitty_delete_artist_art();
+            }
             app.prev_tab();
         }
         KeyCode::Char(' ') => app.toggle_pause(),
@@ -75,17 +83,28 @@ pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
         KeyCode::Char('p') => app.prev_track(),
         KeyCode::Char('z') => app.toggle_shuffle(),
         KeyCode::Esc => {
-            if leaving_album(app) { kitty_delete_album_art(); }
-            if leaving_artist(app) { kitty_delete_artist_art(); }
+            if leaving_album(app) {
+                kitty_delete_album_art();
+            }
+            if leaving_artist(app) {
+                kitty_delete_artist_art();
+            }
             app.go_back();
         }
-        KeyCode::Char('+') | KeyCode::Char('=') => { let _ = app.player_tx.send(PlayerCmd::ChangeVolume(5)); },
-        KeyCode::Char('-') => { let _ = app.player_tx.send(PlayerCmd::ChangeVolume(-5)); },
+        KeyCode::Char('+') | KeyCode::Char('=') => {
+            let _ = app.player_tx.send(PlayerCmd::ChangeVolume(5));
+        }
+        KeyCode::Char('-') => {
+            let _ = app.player_tx.send(PlayerCmd::ChangeVolume(-5));
+        }
         KeyCode::Char('g') => {
             if let Some(track) = get_selected_track(app) {
                 app.go_to_artist_from_track(&track);
             } else {
-                app.set_status("No track selected".to_string(), crate::app::StatusLevel::Error);
+                app.set_status(
+                    "No track selected".to_string(),
+                    crate::app::StatusLevel::Error,
+                );
             }
         }
         _ => return false,
