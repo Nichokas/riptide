@@ -16,7 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed scroll-triggered loading. Every list already loads in full before it reaches the UI, so `should_load_more()`, `check_load_more()` and the per-list `load_more_*` helpers were dead weight that could still fire and duplicate data
 - Dropped `offset` and `limit` from API requests and request types — the Tidal v2 API ignores both, and `offset=0`, `offset=20` and no offset all return identical pages
 - Formatted the codebase with rustfmt, added a CI lint job that fails on unformatted code, and bundled an opt-in pre-commit hook (`git config core.hooksPath .githooks`)
-- macOS x86_64 is cross-compiled from the Apple Silicon runner rather than built on a slower Intel runner
 - Bumped `softprops/action-gh-release` to v3 for the Node 24 Actions runtime
 
 ## [1.0.0] - 2026-08-13
