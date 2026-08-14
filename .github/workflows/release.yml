@@ -9,6 +9,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # No system dependencies or cache: `cargo fmt` parses the source without
+      # building it, so nothing here needs to link against libssl/dbus.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -28,7 +43,7 @@ jobs:
         run: cargo test
 
   build-linux:
-    needs: test
+    needs: [test, lint]
     name: Build x86_64-linux
     runs-on: ubuntu-latest
     steps:
@@ -62,7 +77,7 @@ jobs:
             riptide-${{ github.ref_name }}-x86_64-linux-gnu.tar.gz.sha256
 
   build-macos:
-    needs: test
+    needs: [test, lint]
     name: Build macOS (arm64 + x86_64)
     runs-on: macos-latest
     steps:
