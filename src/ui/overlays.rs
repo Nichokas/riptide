@@ -308,7 +308,10 @@ pub(super) fn render_update_modal(f: &mut Frame, app: &App, area: Rect) {
 
     f.render_widget(Clear, overlay);
     let block = Block::default()
-        .title(Span::styled(" update ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)))
+        .title(Span::styled(
+            " update ",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT));
     let inner = block.inner(overlay);
@@ -336,7 +339,11 @@ pub(super) fn render_update_modal(f: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(Color::Green),
         ),
         UpdateStatus::Failed => {
-            let raw = app.update.error.clone().unwrap_or_else(|| "unknown error".into());
+            let raw = app
+                .update
+                .error
+                .clone()
+                .unwrap_or_else(|| "unknown error".into());
             let truncated = if raw.chars().count() > max_err_len {
                 let mut s: String = raw.chars().take(max_err_len.saturating_sub(1)).collect();
                 s.push('…');
@@ -361,7 +368,10 @@ pub(super) fn render_update_modal(f: &mut Frame, app: &App, area: Rect) {
     let remaining_h = inner.height.saturating_sub(2);
     if remaining_h > 0 {
         f.render_widget(
-            Paragraph::new(line2).style(line2_style).alignment(Alignment::Center).wrap(Wrap { trim: true }),
+            Paragraph::new(line2)
+                .style(line2_style)
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: true }),
             Rect::new(inner.x, inner.y + 2, inner.width, remaining_h),
         );
     }

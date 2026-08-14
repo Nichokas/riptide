@@ -96,8 +96,7 @@ pub fn version_is_newer(tag: &str, current: &str) -> bool {
 /// True when `name` is the `.tar.gz` asset for the current platform
 /// (as opposed to a checksum file, another platform, or the bare binary).
 fn is_our_binary_asset(name: &str) -> bool {
-    name.starts_with("riptide-v")
-        && name.ends_with(&format!("-{}.tar.gz", target_binary_triple()))
+    name.starts_with("riptide-v") && name.ends_with(&format!("-{}.tar.gz", target_binary_triple()))
 }
 
 /// Parse a GitHub release JSON payload, selecting the assets for this platform.
@@ -108,18 +107,26 @@ fn release_info_from_json(json: &str) -> Result<ReleaseInfo> {
         .context("release JSON has no tag_name")?
         .to_string();
 
-    let assets = v["assets"].as_array().context("release JSON has no assets")?;
+    let assets = v["assets"]
+        .as_array()
+        .context("release JSON has no assets")?;
     let mut asset_name: Option<String> = None;
     let mut tarball_url: Option<String> = None;
     for a in assets {
-        let Some(name) = a["name"].as_str() else { continue };
+        let Some(name) = a["name"].as_str() else {
+            continue;
+        };
         if is_our_binary_asset(name) && tarball_url.is_none() {
             asset_name = Some(name.to_string());
             tarball_url = a["browser_download_url"].as_str().map(str::to_string);
         }
     }
-    let tarball_url = tarball_url
-        .with_context(|| format!("no asset for platform {} in release {tag}", target_binary_triple()))?;
+    let tarball_url = tarball_url.with_context(|| {
+        format!(
+            "no asset for platform {} in release {tag}",
+            target_binary_triple()
+        )
+    })?;
     let asset_name = asset_name.expect("matched asset has a name");
     let checksums_url = assets.iter().find_map(|a| {
         if a["name"].as_str() == Some("SHA256SUMS") {
@@ -197,7 +204,9 @@ fn extract_binary_from_tarball(tarball: &[u8], dir: &Path) -> Result<PathBuf> {
             continue;
         }
         let dest = dir.join("riptide");
-        entry.unpack(&dest).context("cannot unpack riptide binary")?;
+        entry
+            .unpack(&dest)
+            .context("cannot unpack riptide binary")?;
         // Verify the unpacked path is a regular file, not a symlink left behind.
         let meta = std::fs::symlink_metadata(&dest).context("unpacked binary missing")?;
         if !meta.is_file() {
@@ -232,9 +241,10 @@ fn swap_binary(target: &Path, staged: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         if let Some(dir) = target.parent()
-            && let Ok(d) = std::fs::File::open(dir) {
-                let _ = d.sync_all();
-            }
+            && let Ok(d) = std::fs::File::open(dir)
+        {
+            let _ = d.sync_all();
+        }
     }
     Ok(())
 }
@@ -297,7 +307,10 @@ fn is_pacman_owned(path: &Path) -> bool {
             // Timeout or disconnected sender. Detach the query thread (it may
             // still be alive) and fall through to conservative ownership.
             drop(query);
-            tracing::warn!("pacman -Qo timed out for {}; assuming pacman-owned", path.display());
+            tracing::warn!(
+                "pacman -Qo timed out for {}; assuming pacman-owned",
+                path.display()
+            );
             return true;
         }
     };
@@ -347,15 +360,16 @@ pub fn cleanup_stale_artifacts() {
             exe
         };
         if let Some(dir) = exe_path.parent()
-            && let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let n = entry.file_name();
-                    let s = n.to_string_lossy();
-                    if s.starts_with(".riptide.new-") || s.starts_with(".riptide.sudo-staged-") {
-                        let _ = std::fs::remove_file(entry.path());
-                    }
+            && let Ok(entries) = std::fs::read_dir(dir)
+        {
+            for entry in entries.flatten() {
+                let n = entry.file_name();
+                let s = n.to_string_lossy();
+                if s.starts_with(".riptide.new-") || s.starts_with(".riptide.sudo-staged-") {
+                    let _ = std::fs::remove_file(entry.path());
                 }
             }
+        }
     }
 }
 
@@ -494,9 +508,7 @@ fn download_and_install(
             .with_context(|| format!("SHA256SUMS has no entry for {asset}"))?;
         let actual = sha256_hex(&tarball);
         if actual != expected {
-            bail!(
-                "checksum mismatch for {asset}: expected {expected}, got {actual}"
-            );
+            bail!("checksum mismatch for {asset}: expected {expected}, got {actual}");
         }
     } else {
         bail!(
@@ -537,7 +549,9 @@ fn download_and_install(
         let _ = std::fs::remove_file(&staged);
     }
     // Guard to clean staged file on any error or cancel path.
-    let staged_guard = StagedGuard { path: Some(staged.clone()) };
+    let staged_guard = StagedGuard {
+        path: Some(staged.clone()),
+    };
     match std::fs::copy(&extracted, &staged) {
         Ok(_) => {
             if cancel.load(std::sync::atomic::Ordering::Relaxed) {
@@ -596,10 +610,15 @@ impl Drop for StagedGuard {
 /// when sudo is absent or refuses. Avoids shell interpolation by invoking
 /// cp/chmod/mv directly with separate sudo calls.
 fn try_sudo_swap(target: &Path, staged: &Path) -> bool {
-    let Some(dir) = target.parent() else { return false };
+    let Some(dir) = target.parent() else {
+        return false;
+    };
     let sudo_tmp = {
         let rnd: u32 = rand::random();
-        dir.join(format!(".riptide.sudo-staged-{}-{rnd:08x}", std::process::id()))
+        dir.join(format!(
+            ".riptide.sudo-staged-{}-{rnd:08x}",
+            std::process::id()
+        ))
     };
     // Remove any pre-existing symlink at sudo_tmp.
     if let Ok(meta) = std::fs::symlink_metadata(&sudo_tmp) {
@@ -683,7 +702,9 @@ pub fn run_update_cli() -> Result<()> {
             bail!("installed via Nix — update the riptide input/flake instead")
         }
         InstallMethod::Cargo => {
-            bail!("installed via cargo — update with `cargo install --path .` (or --locked riptide)")
+            bail!(
+                "installed via cargo — update with `cargo install --path .` (or --locked riptide)"
+            )
         }
         InstallMethod::Script => {}
     }
@@ -746,16 +767,21 @@ fn http_client_for_download() -> Result<reqwest::blocking::Client> {
 }
 
 fn base_client_builder() -> Result<reqwest::blocking::ClientBuilder> {
-    let mut builder = reqwest::blocking::Client::builder()
-        .user_agent(concat!("riptide/", env!("CARGO_PKG_VERSION"), " (self-update)"));
+    let mut builder = reqwest::blocking::Client::builder().user_agent(concat!(
+        "riptide/",
+        env!("CARGO_PKG_VERSION"),
+        " (self-update)"
+    ));
 
     // Determine whether GitHub is exempt from proxying via NO_PROXY.
     // Check both NO_PROXY and no_proxy, skipping empty values so an empty
     // NO_PROXY does not shadow a populated no_proxy.
-    let raw_no_proxy = ["NO_PROXY", "no_proxy"].iter().find_map(|v| match std::env::var(v) {
-        Ok(s) if !s.trim().is_empty() => Some(s),
-        _ => None,
-    });
+    let raw_no_proxy = ["NO_PROXY", "no_proxy"]
+        .iter()
+        .find_map(|v| match std::env::var(v) {
+            Ok(s) if !s.trim().is_empty() => Some(s),
+            _ => None,
+        });
     let no_proxy_for_github = raw_no_proxy.is_some_and(|list| {
         // Hosts we contact: api.github.com for the release JSON, and
         // objects.githubusercontent.com where browser_download_url redirects.
@@ -773,16 +799,18 @@ fn base_client_builder() -> Result<reqwest::blocking::ClientBuilder> {
             if e == "*" {
                 return true;
             }
-            GITHUB_HOSTS.iter().any(|target| {
-                *target == e || target.ends_with(&format!(".{e}"))
-            })
+            GITHUB_HOSTS
+                .iter()
+                .any(|target| *target == e || target.ends_with(&format!(".{e}")))
         })
     });
 
     if !no_proxy_for_github {
         // Strictly ordered: specific before generic, uppercase before lowercase.
         for var in ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] {
-            let Ok(proxy) = std::env::var(var) else { continue };
+            let Ok(proxy) = std::env::var(var) else {
+                continue;
+            };
             if proxy.is_empty() {
                 continue;
             }
@@ -824,8 +852,8 @@ fn download_to_file(client: &reqwest::blocking::Client, url: &str, dest: &Path) 
     {
         bail!("download too large ({len} bytes) for {url}");
     }
-    let mut file = std::fs::File::create(dest)
-        .with_context(|| format!("cannot create {}", dest.display()))?;
+    let mut file =
+        std::fs::File::create(dest).with_context(|| format!("cannot create {}", dest.display()))?;
     let mut limited = resp.take(MAX_BYTES + 1); // +1 lets us detect overflow
     let written = std::io::copy(&mut limited, &mut file)
         .with_context(|| format!("cannot write {}", dest.display()))?;
@@ -960,7 +988,9 @@ mod tests {
         assert!(!info.tarball_url.ends_with(".tar.gz.sha256"));
         assert_eq!(
             info.checksums_url.as_deref(),
-            Some("https://github.com/fezzik-the-giant/riptide/releases/download/v0.14.0/SHA256SUMS")
+            Some(
+                "https://github.com/fezzik-the-giant/riptide/releases/download/v0.14.0/SHA256SUMS"
+            )
         );
     }
 
@@ -998,9 +1028,13 @@ mod tests {
 
     // ── extract_binary_from_tarball ───────────────────────────────────────
 
-    fn make_tarball_with_binary(dir: &std::path::Path, binary_name: &str, content: &[u8]) -> Vec<u8> {
-        use flate2::write::GzEncoder;
+    fn make_tarball_with_binary(
+        dir: &std::path::Path,
+        binary_name: &str,
+        content: &[u8],
+    ) -> Vec<u8> {
         use flate2::Compression;
+        use flate2::write::GzEncoder;
         let bin_path = dir.join(binary_name);
         fs::write(&bin_path, content).unwrap();
 
@@ -1034,7 +1068,8 @@ mod tests {
 
     #[test]
     fn extract_binary_errors_without_binary() {
-        let dir = std::env::temp_dir().join(format!("riptide-test-extract-empty-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("riptide-test-extract-empty-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -1099,9 +1134,7 @@ mod tests {
             InstallMethod::Cargo
         );
         assert_eq!(
-            install_method_from_path(Path::new(
-                "/nix/store/abc123-riptide-0.13.0/bin/riptide"
-            )),
+            install_method_from_path(Path::new("/nix/store/abc123-riptide-0.13.0/bin/riptide")),
             InstallMethod::Nix
         );
     }
@@ -1193,7 +1226,8 @@ mod tests {
 
     #[test]
     fn is_under_cargo_bin_respects_cargo_home() {
-        let cargo_home = std::env::temp_dir().join(format!("riptide-cargo-home-{}", std::process::id()));
+        let cargo_home =
+            std::env::temp_dir().join(format!("riptide-cargo-home-{}", std::process::id()));
         let bin = cargo_home.join("bin");
         let exe = bin.join("riptide");
         // Safety: CARGO_HOME is process-global; restore after.
@@ -1204,7 +1238,12 @@ mod tests {
             Some(v) => unsafe { std::env::set_var("CARGO_HOME", v) },
             None => unsafe { std::env::remove_var("CARGO_HOME") },
         }
-        assert!(result, "CARGO_HOME={} should make {:?} a cargo bin", cargo_home.display(), exe);
+        assert!(
+            result,
+            "CARGO_HOME={} should make {:?} a cargo bin",
+            cargo_home.display(),
+            exe
+        );
         // Also check fallback still works when CARGO_HOME is unset.
         let fallback = Path::new("/home/someone/.cargo/bin/riptide");
         let prev2 = std::env::var("CARGO_HOME").ok();
@@ -1212,8 +1251,11 @@ mod tests {
         let fallback_result = is_under_cargo_bin(fallback);
         match prev2 {
             Some(v) => unsafe { std::env::set_var("CARGO_HOME", v) },
-            None => {},
+            None => {}
         }
-        assert!(fallback_result, "fallback .cargo/bin should still be cargo bin");
+        assert!(
+            fallback_result,
+            "fallback .cargo/bin should still be cargo bin"
+        );
     }
 }

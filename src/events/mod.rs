@@ -64,7 +64,6 @@ pub fn run_app(
             }
         }
 
-
         // Drain self-update channel: availability check result + install result
         while let Ok(()) = app.checking_rx.try_recv() {
             app.update.checking = true;

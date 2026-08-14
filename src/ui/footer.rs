@@ -18,11 +18,14 @@ pub(super) fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     let cols = Layout::horizontal([Constraint::Min(0), Constraint::Length(20)]).split(area);
 
     let context_hint = get_context_hint(app);
-    let show_update_hint = app.update.available.is_some()
-        && app.update.status != crate::app::UpdateStatus::Done;
+    let show_update_hint =
+        app.update.available.is_some() && app.update.status != crate::app::UpdateStatus::Done;
     let context_span = if show_update_hint {
         let tag = app.update.available.as_deref().unwrap_or_default();
-        Span::styled(format!("↑ {tag} — U  {context_hint}"), Style::default().fg(DIM))
+        Span::styled(
+            format!("↑ {tag} — U  {context_hint}"),
+            Style::default().fg(DIM),
+        )
     } else {
         Span::styled(context_hint, Style::default().fg(DIM))
     };

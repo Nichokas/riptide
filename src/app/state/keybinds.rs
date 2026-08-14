@@ -80,7 +80,7 @@ impl KeybindGroup {
                 },
                 Keybind {
                     key: "U",
-                    action: "Update to latest release"
+                    action: "Update to latest release",
                 },
                 Keybind {
                     key: "+ or =",

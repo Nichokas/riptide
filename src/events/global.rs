@@ -109,13 +109,22 @@ pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
         }
         KeyCode::Char('U') | KeyCode::Char('u') => {
             if app.update.checking {
-                app.set_status("Checking for updates…".to_string(), crate::app::StatusLevel::Info);
+                app.set_status(
+                    "Checking for updates…".to_string(),
+                    crate::app::StatusLevel::Info,
+                );
             } else if app.update.available.is_some() {
                 app.open_update_dialog();
             } else if let Some(err) = &app.update.check_error {
-                app.set_status(format!("Update check failed: {err}"), crate::app::StatusLevel::Error);
+                app.set_status(
+                    format!("Update check failed: {err}"),
+                    crate::app::StatusLevel::Error,
+                );
             } else if app.update.check_done {
-                app.set_status("Riptide is up to date".to_string(), crate::app::StatusLevel::Info);
+                app.set_status(
+                    "Riptide is up to date".to_string(),
+                    crate::app::StatusLevel::Info,
+                );
             } else {
                 app.set_status(
                     "Updates are handled by your package manager".to_string(),
