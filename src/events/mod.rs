@@ -12,7 +12,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use crate::api::ApiResponse;
-use crate::app::{App, Tab};
+use crate::app::{App, Tab, UpdateCmd, UpdateStatus};
 use crate::mpris::MprisCmd;
 use crate::player::{PlayerCmd, PlayerEvent};
 
@@ -69,7 +69,37 @@ pub fn run_app(
             app.update.checking = true;
         }
         while let Ok(result) = app.update_rx.try_recv() {
+            // A check result that lands while the modal is Working is the
+            // install-triggered re-check: proceed to download on a newer tag,
+            // otherwise surface the real outcome. A result landing on an open
+            // Failed modal is the user's manual retry — refresh the modal.
+            let install_recheck = app.update.active
+                && app.update.status == UpdateStatus::Working
+                && app.update.update_checking;
+            let retry_check = app.update.active
+                && app.update.status == UpdateStatus::Failed
+                && app.update.checking;
             app.set_update_available(result);
+            if install_recheck {
+                app.update.update_checking = false;
+                if app.update.available.is_some() {
+                    let _ = app.update_cmd_tx.send(UpdateCmd::Install);
+                } else if let Some(err) = app.update.check_error.clone() {
+                    app.update.status = UpdateStatus::Failed;
+                    app.update.error = Some(err);
+                } else {
+                    app.update.status = UpdateStatus::UpToDate;
+                }
+            } else if retry_check {
+                if app.update.available.is_some() {
+                    app.update.status = UpdateStatus::Confirming;
+                    app.update.error = None;
+                } else if let Some(err) = app.update.check_error.clone() {
+                    app.update.error = Some(err);
+                } else {
+                    app.update.status = UpdateStatus::UpToDate;
+                }
+            }
         }
         while let Ok(result) = app.update_result_rx.try_recv() {
             app.set_update_result(result);
@@ -158,14 +188,15 @@ fn handle_update_input(app: &mut App, key: KeyEvent) {
     match app.update.status {
         UpdateStatus::Confirming => match key.code {
             KeyCode::Enter => {
-                if app.update_go_tx.send(()).is_err() {
+                if app.update_cmd_tx.send(UpdateCmd::Install).is_err() {
                     app.update.status = UpdateStatus::Failed;
                     app.update.error = Some("update service unavailable".to_string());
                 } else {
                     app.update.status = UpdateStatus::Working;
+                    app.update.update_checking = true;
                 }
             }
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('U') | KeyCode::Char('u') => {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('u') | KeyCode::Char('U') => {
                 app.update.active = false;
             }
             _ => {}
@@ -178,16 +209,31 @@ fn handle_update_input(app: &mut App, key: KeyEvent) {
             }
             _ => {}
         },
-        UpdateStatus::Done | UpdateStatus::Failed => match key.code {
+        UpdateStatus::Done | UpdateStatus::UpToDate => match key.code {
+            KeyCode::Esc
+            | KeyCode::Enter
+            | KeyCode::Char('q')
+            | KeyCode::Char('u')
+            | KeyCode::Char('U')
+            | KeyCode::Char(' ') => {
+                app.update.available = None;
+                app.update.active = false;
+            }
+            _ => {}
+        },
+        UpdateStatus::Failed => match key.code {
+            KeyCode::Char('u') if !app.update.checking => {
+                app.update.checking = true;
+                if app.update_cmd_tx.send(UpdateCmd::Check).is_err() {
+                    app.update.checking = false;
+                    app.update.error = Some("update service unavailable".to_string());
+                }
+            }
             KeyCode::Esc
             | KeyCode::Enter
             | KeyCode::Char('q')
             | KeyCode::Char('U')
-            | KeyCode::Char('u')
             | KeyCode::Char(' ') => {
-                if app.update.status == UpdateStatus::Done {
-                    app.update.available = None;
-                }
                 app.update.active = false;
             }
             _ => {}

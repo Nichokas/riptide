@@ -36,12 +36,12 @@ fn lastfm_auth() -> Result<()> {
 
 fn setup_panic_hook() {
     let original = std::panic::take_hook();
-    let main_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
-        // Only restore the terminal if the panic is on the main thread.
-        // Actor-thread panics are caught via `catch_unwind` and must not tear
-        // down the TUI's alternate screen/raw mode.
-        if std::thread::current().id() == main_thread {
+        // Restore the terminal on any thread so a panic never leaves the user
+        // staring at a frozen alternate screen. The one exception is the
+        // named self-update actor thread, whose panics are caught via
+        // `catch_unwind` — restoring there would tear down an intact TUI.
+        if std::thread::current().name() != Some("riptide-update") {
             let _ = disable_raw_mode();
             let _ = execute!(
                 std::io::stderr(),
@@ -121,27 +121,30 @@ fn main() -> Result<()> {
     // Spawn async workers on a dedicated Tokio thread.
     // We keep the handle so we can join it on exit and let PlayerWorker kill mpv cleanly.
     let worker_config = config.clone();
-    let worker_thread = std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-        rt.block_on(async move {
-            let api_worker = ApiWorker::new(worker_config.clone(), api_req_rx, api_resp_tx);
-            let player_worker = PlayerWorker::new(player_cmd_rx, player_evt_tx);
-            let mpris_server = MprisServer::new(mpris_state_rx, mpris_cmd_tx);
-            let lastfm_worker = lastfm::worker::LastfmWorker::new(
-                worker_config.lastfm,
-                lastfm_cmd_rx,
-                player_evt_lastfm_rx,
-                _lastfm_evt_tx,
-            );
-            tokio::spawn(manifest::run_server());
-            tokio::join!(
-                api_worker.run(),
-                player_worker.run(),
-                mpris_server.run(),
-                lastfm_worker.run()
-            );
-        });
-    });
+    let worker_thread = std::thread::Builder::new()
+        .name("riptide-workers".to_string())
+        .spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+            rt.block_on(async move {
+                let api_worker = ApiWorker::new(worker_config.clone(), api_req_rx, api_resp_tx);
+                let player_worker = PlayerWorker::new(player_cmd_rx, player_evt_tx);
+                let mpris_server = MprisServer::new(mpris_state_rx, mpris_cmd_tx);
+                let lastfm_worker = lastfm::worker::LastfmWorker::new(
+                    worker_config.lastfm,
+                    lastfm_cmd_rx,
+                    player_evt_lastfm_rx,
+                    _lastfm_evt_tx,
+                );
+                tokio::spawn(manifest::run_server());
+                tokio::join!(
+                    api_worker.run(),
+                    player_worker.run(),
+                    mpris_server.run(),
+                    lastfm_worker.run()
+                );
+            });
+        })
+        .expect("spawn worker thread");
 
     // Set up terminal
     enable_raw_mode()?;
@@ -162,54 +165,70 @@ fn main() -> Result<()> {
     // Reap any staged files left by a previous cancelled update.
     update::cleanup_stale_artifacts();
 
-    // Self-update actor: checks GitHub once (shortly after startup, so it
-    // never delays the first frame), then stays alive to run a TUI-triggered
-    // install. Skipped entirely for pacman/nix/cargo installs. Not started in
-    // App::new so tests stay offline.
+    // Self-update actor: runs the availability check at startup (3 s in, so it
+    // never delays the first frame) and on manual retry, and performs the
+    // install on `go`. Skipped entirely for pacman/nix/cargo installs; also
+    // absent in tests, which never spawn the actor.
     if let Some(actor) = app.take_update_actor() {
         let cancel = app.update_cancel.clone();
-        std::thread::spawn(move || {
-            let mut go_rx = actor.go_rx;
-            let check_tx = actor.check_tx;
-            let checking_tx = actor.checking_tx;
-            let result_tx = actor.result_tx;
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            // install_method is evaluated here, not on the main thread, so a
-            // stuck ALPM db (pacman -Syu) never blocks the first frame.
-            if update::install_method() != update::InstallMethod::Script {
-                tracing::debug!("self-update disabled for this install method");
-                // No availability check; checking stays false so `U` reports
-                // "Updates are handled by your package manager".
-                return;
-            }
-            let _ = checking_tx.send(());
-            let check_result = std::panic::catch_unwind(update::check_for_update_assuming_script);
-            let to_send = match check_result {
-                Ok(r) => r,
-                Err(_) => Err("update check panicked".to_string()),
-            };
-            let _ = check_tx.send(to_send);
-            // Loop to handle multiple install attempts (e.g. retry after failure).
-            while let Some(()) = go_rx.blocking_recv() {
-                // Catch panics so the TUI never hangs in Working. Reset the
-                // cancel flag per attempt so a retried update can proceed.
-                cancel.store(false, std::sync::atomic::Ordering::Relaxed);
-                let outcome = std::panic::catch_unwind(|| update::self_update_with_cancel(&cancel));
-                let result = match outcome {
-                    Ok(Ok(update::UpdateOutcome::Updated(tag))) => Ok(tag),
-                    Ok(Ok(update::UpdateOutcome::AlreadyCurrent)) => {
-                        Err("Already up to date".to_string())
-                    }
-                    Ok(Err(e)) => Err(format!("{e:#}")),
-                    Err(_) => Err("update panicked".to_string()),
-                };
-                // If TUI closed, send will fail — exit loop.
-                if result_tx.send(result).is_err() {
-                    break;
+        std::thread::Builder::new()
+            .name("riptide-update".to_string())
+            .spawn(move || {
+                let mut cmd_rx = actor.cmd_rx;
+                let check_tx = actor.check_tx;
+                let checking_tx = actor.checking_tx;
+                let result_tx = actor.result_tx;
+                std::thread::sleep(std::time::Duration::from_secs(3));
+
+                // install_method is deferred to this thread so a stuck pacman
+                // db never delays the first frame. A panic here is not fatal —
+                // we treat the binary as self-updatable and let the check fail
+                // cleanly if the environment is odd.
+                let method = std::panic::catch_unwind(update::install_method)
+                    .unwrap_or(update::InstallMethod::Script);
+                if method != update::InstallMethod::Script {
+                    tracing::debug!("self-update disabled for this install method");
+                    return;
                 }
-            }
-            tracing::debug!("update actor: TUI closed or channel dropped");
-        });
+
+                let _ = checking_tx.send(());
+                let initial = std::panic::catch_unwind(update::check_for_update_assuming_script)
+                    .unwrap_or_else(|_| Err("update check panicked".to_string()));
+                update::sending_check(&check_tx, initial);
+
+                // Drain Check/Install commands in order until the TUI closes.
+                while let Some(cmd) = cmd_rx.blocking_recv() {
+                    use app::UpdateCmd;
+                    match cmd {
+                        UpdateCmd::Check => {
+                            let _ = checking_tx.send(());
+                            let r =
+                                std::panic::catch_unwind(update::check_for_update_assuming_script)
+                                    .unwrap_or_else(|_| Err("update check panicked".to_string()));
+                            update::sending_check(&check_tx, r);
+                        }
+                        UpdateCmd::Install => {
+                            // Catch panics so the TUI never hangs in Working. Reset
+                            // cancel so a retried update can proceed. AlreadyCurrent
+                            // surfaces the release no longer being newer — benign.
+                            cancel.store(false, std::sync::atomic::Ordering::Relaxed);
+                            let r = std::panic::catch_unwind(|| {
+                                update::self_update_with_cancel(&cancel)
+                            });
+                            let result = match r {
+                                Ok(Ok(outcome)) => Ok(outcome),
+                                Ok(Err(e)) => Err(format!("{e:#}")),
+                                Err(_) => Err("update panicked".to_string()),
+                            };
+                            if result_tx.send(result).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                tracing::debug!("update actor: TUI closed or channel dropped");
+            })
+            .expect("spawn self-update actor");
     }
     let result = events::run_app(
         &mut terminal,

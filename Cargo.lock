@@ -2884,6 +2884,7 @@ dependencies = [
  "dirs",
  "flate2",
  "image",
+ "libc",
  "md5",
  "open",
  "rand 0.8.6",

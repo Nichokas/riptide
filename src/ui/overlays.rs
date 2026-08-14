@@ -317,25 +317,40 @@ pub(super) fn render_update_modal(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(overlay);
     f.render_widget(block, overlay);
 
+    if inner.height == 0 {
+        return;
+    }
+
     let current = env!("CARGO_PKG_VERSION");
     let latest = app.update.available.clone().unwrap_or_default();
 
     use crate::app::UpdateStatus;
-    let max_err_len = inner.width.saturating_sub(12) as usize;
     let (line1, line2, line2_style) = match app.update.status {
         UpdateStatus::Confirming => (
             format!("Update available: {current} → {latest}"),
             "Enter install · Esc cancel".to_string(),
             Style::default().fg(Color::White),
         ),
-        UpdateStatus::Working => (
-            format!("Updating {current} → {latest}"),
-            "Downloading, verifying checksum, installing…".to_string(),
-            Style::default().fg(DIM),
-        ),
+        UpdateStatus::Working => {
+            let line2 = if app.update.update_checking {
+                "Re-checking latest release…".to_string()
+            } else {
+                "Downloading, verifying checksum, installing…".to_string()
+            };
+            (
+                "Installing update".to_string(),
+                line2,
+                Style::default().fg(DIM),
+            )
+        }
         UpdateStatus::Done => (
             format!("Updated to {latest}"),
             "Restart riptide to apply.  Enter/Esc close".to_string(),
+            Style::default().fg(Color::Green),
+        ),
+        UpdateStatus::UpToDate => (
+            "Riptide is up to date".to_string(),
+            format!("Running the latest release (v{current}).  Enter/Esc close"),
             Style::default().fg(Color::Green),
         ),
         UpdateStatus::Failed => {
@@ -344,35 +359,31 @@ pub(super) fn render_update_modal(f: &mut Frame, app: &App, area: Rect) {
                 .error
                 .clone()
                 .unwrap_or_else(|| "unknown error".into());
-            let truncated = if raw.chars().count() > max_err_len {
-                let mut s: String = raw.chars().take(max_err_len.saturating_sub(1)).collect();
-                s.push('…');
-                s
+            let footer = if app.update.checking {
+                "Retrying…"
             } else {
-                raw
+                "u retry check · Esc close"
             };
             (
                 "Update failed.".to_string(),
-                format!("{truncated}  (Esc close)"),
-                Style::default().fg(Color::Red),
+                format!("{raw}\n\n{footer}"),
+                Style::default().fg(Color::White),
             )
         }
     };
 
+    f.render_widget(
+        Paragraph::new(Line::from(line1)).alignment(Alignment::Center),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+
     if inner.height >= 2 {
-        f.render_widget(
-            Paragraph::new(Line::from(line1)).alignment(Alignment::Center),
-            Rect::new(inner.x, inner.y, inner.width, 1),
-        );
-    }
-    let remaining_h = inner.height.saturating_sub(2);
-    if remaining_h > 0 {
         f.render_widget(
             Paragraph::new(line2)
                 .style(line2_style)
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: true }),
-            Rect::new(inner.x, inner.y + 2, inner.width, remaining_h),
+            Rect::new(inner.x, inner.y + 1, inner.width, inner.height - 1),
         );
     }
 }
@@ -381,7 +392,6 @@ pub(super) fn render_toast(f: &mut Frame, app: &App, area: Rect) {
     let Some((msg, level, set_at)) = &app.status else {
         return;
     };
-
     let elapsed = set_at.elapsed().as_secs_f64();
     // Fade out over the last ~1 s of the 5 s lifetime.
     let fading = elapsed > 4.0;
@@ -426,4 +436,126 @@ pub(super) fn render_toast(f: &mut Frame, app: &App, area: Rect) {
             ),
         toast_rect,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn make_app() -> App {
+        let (api_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let (player_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let (mpris_tx, _) = tokio::sync::watch::channel(crate::mpris::MprisState::default());
+        let (lastfm_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        App::new(
+            api_tx,
+            player_tx,
+            mpris_tx,
+            lastfm_tx,
+            crate::app::Preferences::default(),
+        )
+    }
+
+    fn render_modal(app: &App, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| crate::ui::draw(f, app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let mut text = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                text.push_str(buffer[(x, y)].symbol());
+            }
+            text.push('\n');
+        }
+        text
+    }
+
+    fn confirm_app() -> App {
+        let mut app = make_app();
+        app.update.active = true;
+        app.update.available = Some("v1.0.2".to_string());
+        app.update.status = crate::app::UpdateStatus::Confirming;
+        app
+    }
+
+    #[test]
+    fn update_modal_shows_confirm_content_on_normal_terminal() {
+        let text = render_modal(&confirm_app(), 80, 24);
+        assert!(
+            text.contains("Update available"),
+            "expected status line: {text}"
+        );
+        assert!(
+            text.contains("Enter install"),
+            "expected the confirm keybind hint: {text}"
+        );
+    }
+
+    // Regression for the empty-box bug: box height clamps to area-4, and the
+    // status line only needs one row, so it must render whenever the modal is
+    // visible at all (previously guarded behind an off-by-one height check).
+    #[test]
+    fn update_modal_renders_status_line_on_short_terminal() {
+        // Area height 7 clamps the box to 3 rows: border top/bottom + 1
+        // content row. Only line1 fits; it must not be skipped.
+        let text = render_modal(&confirm_app(), 80, 7);
+        assert!(
+            text.contains("Update available"),
+            "short terminal must still show the status line: {text}"
+        );
+    }
+
+    // The failed-update error must be shown in full, not truncated to a single
+    // clipped line: the install remedy is how the user recovers.
+    #[test]
+    fn update_modal_shows_full_failure_error() {
+        let mut app = make_app();
+        app.update.active = true;
+        app.update.status = crate::app::UpdateStatus::Failed;
+        app.update.error = Some(
+            "cannot write to /usr/local/bin as this user and sudo refused — \
+             re-run install.sh: curl -fsSL https://raw.githubusercontent.com/x/y/master/install.sh"
+                .to_string(),
+        );
+        let text = render_modal(&app, 80, 24);
+        assert!(
+            text.contains("Update failed."),
+            "expected failure title: {text}"
+        );
+        assert!(
+            text.contains("install.sh"),
+            "error must not be truncated before the remedy: {text}"
+        );
+    }
+
+    #[test]
+    fn update_modal_failed_state_offers_retry() {
+        let mut app = make_app();
+        app.update.active = true;
+        app.update.status = crate::app::UpdateStatus::Failed;
+        app.update.error = Some("boom".to_string());
+        let text = render_modal(&app, 80, 24);
+        assert!(
+            text.contains("retry check"),
+            "failed state should advertise the retry keybind: {text}"
+        );
+    }
+
+    #[test]
+    fn update_modal_up_to_date_is_neutral_not_failed() {
+        let mut app = make_app();
+        app.update.active = true;
+        app.update.status = crate::app::UpdateStatus::UpToDate;
+        let text = render_modal(&app, 80, 24);
+        assert!(
+            text.contains("up to date"),
+            "expected a neutral up-to-date message: {text}"
+        );
+        assert!(
+            !text.contains("Update failed."),
+            "already-current must not render as a failure: {text}"
+        );
+    }
 }

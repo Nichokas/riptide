@@ -30,13 +30,13 @@ const DEFAULT_ART: &[u8] = include_bytes!("../../assets/wave-logo-320-transparen
 // ── App ───────────────────────────────────────────────────────────────────────
 
 /// Ends of the self-update channels owned by the update actor thread (main.rs).
-/// `check_tx` carries `Ok(tag)`/`Ok(None)`/`Err(message)` from the one-time
-/// startup availability check.
+/// `check_tx` carries `Ok(tag)`/`Ok(None)`/`Err(message)` from availability
+/// checks; `cmd_rx` receives Check/Install commands from the UI.
 pub struct UpdateActorHandles {
     pub check_tx: mpsc::UnboundedSender<Result<Option<String>, String>>,
     pub checking_tx: mpsc::UnboundedSender<()>,
-    pub result_tx: mpsc::UnboundedSender<Result<String, String>>,
-    pub go_rx: mpsc::UnboundedReceiver<()>,
+    pub result_tx: mpsc::UnboundedSender<Result<crate::update::UpdateOutcome, String>>,
+    pub cmd_rx: mpsc::UnboundedReceiver<UpdateCmd>,
 }
 
 pub struct App {
@@ -81,9 +81,9 @@ pub struct App {
     /// Receives a signal that the background check has started (Script install).
     pub checking_rx: mpsc::UnboundedReceiver<()>,
     /// Receives the result of a TUI-triggered update install.
-    pub update_result_rx: mpsc::UnboundedReceiver<Result<String, String>>,
-    /// Signals the update thread to start the install (user pressed Enter).
-    pub update_go_tx: mpsc::UnboundedSender<()>,
+    pub update_result_rx: mpsc::UnboundedReceiver<Result<crate::update::UpdateOutcome, String>>,
+    /// Sends Check/Install commands to the update actor thread.
+    pub update_cmd_tx: mpsc::UnboundedSender<UpdateCmd>,
     /// Cancellation flag for an in-flight download/install; set when the
     /// user quits while Working so the actor aborts before replacing the binary.
     pub update_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -114,7 +114,7 @@ impl App {
         let (update_check_tx, update_rx) = mpsc::unbounded_channel();
         let (checking_tx, checking_rx) = mpsc::unbounded_channel();
         let (update_result_tx, update_result_rx) = mpsc::unbounded_channel();
-        let (update_go_tx, update_go_rx) = mpsc::unbounded_channel();
+        let (update_cmd_tx, update_cmd_rx) = mpsc::unbounded_channel();
 
         let mut app = Self {
             should_quit: false,
@@ -156,13 +156,13 @@ impl App {
             update_rx,
             checking_rx,
             update_result_rx,
-            update_go_tx,
+            update_cmd_tx,
             update_cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             update_actor: Some(UpdateActorHandles {
                 check_tx: update_check_tx,
                 checking_tx,
                 result_tx: update_result_tx,
-                go_rx: update_go_rx,
+                cmd_rx: update_cmd_rx,
             }),
             tick: 0,
             status: None,
@@ -258,36 +258,38 @@ impl App {
         self.update.check_done = true;
     }
 
-    /// Open the update confirmation dialog for the known-newer tag.
-    pub(crate) fn open_update_dialog(&mut self) {
-        if self.update.available.is_some() && !self.update.active {
-            self.update.status = UpdateStatus::Confirming;
+    /// Open the update dialog in a specific state (Confirming for an available
+    /// release, UpToDate to bare the result of a manual check).
+    pub(crate) fn open_update_dialog_in_state(&mut self, status: UpdateStatus) {
+        if !self.update.active {
+            self.update.status = status;
             self.update.error = None;
             self.update.active = true;
         }
     }
 
     /// Record the result of a background install.
-    pub(crate) fn set_update_result(&mut self, result: Result<String, String>) {
+    pub(crate) fn set_update_result(
+        &mut self,
+        result: Result<crate::update::UpdateOutcome, String>,
+    ) {
         match result {
-            Ok(tag) => {
+            Ok(crate::update::UpdateOutcome::Updated(tag)) => {
                 self.update.status = UpdateStatus::Done;
                 self.update.error = None;
-                // Preserve the installed tag for the Done modal, but the footer
-                // hint is hidden while status == Done (see ui::render_footer).
                 self.update.available = Some(tag.clone());
                 self.update.checking = false;
                 tracing::info!("self-update installed {tag}; restart required");
             }
+            Ok(crate::update::UpdateOutcome::AlreadyCurrent) => {
+                self.update.status = UpdateStatus::UpToDate;
+                self.update.error = None;
+                self.update.available = None;
+                self.update.checking = false;
+                tracing::info!("self-update: already up to date");
+            }
             Err(err) => {
-                // "Already up to date" is a benign no-op, not a failure of the
-                // binary — keep it as Failed for now so the modal shows the
-                // message, but log at info level.
-                if err == "Already up to date" {
-                    tracing::info!("self-update: already up to date");
-                } else {
-                    tracing::warn!("self-update failed: {err}");
-                }
+                tracing::warn!("self-update failed: {err}");
                 self.update.status = UpdateStatus::Failed;
                 self.update.error = Some(err);
                 self.update.checking = false;

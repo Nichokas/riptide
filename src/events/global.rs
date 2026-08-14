@@ -107,25 +107,21 @@ pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
                 );
             }
         }
-        KeyCode::Char('U') | KeyCode::Char('u') => {
-            if app.update.checking {
-                app.set_status(
-                    "Checking for updates…".to_string(),
-                    crate::app::StatusLevel::Info,
-                );
-            } else if app.update.available.is_some() {
-                app.open_update_dialog();
-            } else if let Some(err) = &app.update.check_error {
-                app.set_status(
-                    format!("Update check failed: {err}"),
-                    crate::app::StatusLevel::Error,
-                );
-            } else if app.update.check_done {
-                app.set_status(
-                    "Riptide is up to date".to_string(),
-                    crate::app::StatusLevel::Info,
-                );
-            } else {
+        KeyCode::Char('U') => {
+            if app.update.check_done {
+                if app.update.available.is_some() {
+                    app.open_update_dialog_in_state(crate::app::UpdateStatus::Confirming);
+                } else if app.update.check_error.is_some() {
+                    if let Some(err) = app.update.check_error.clone() {
+                        app.update.error = Some(err);
+                    }
+                    app.open_update_dialog_in_state(crate::app::UpdateStatus::Failed);
+                } else {
+                    app.open_update_dialog_in_state(crate::app::UpdateStatus::UpToDate);
+                }
+            } else if !app.update.checking {
+                // Check never ran for this install type — not a self-updatable
+                // binary (pacman/AUR/Nix/Cargo all reach this branch too).
                 app.set_status(
                     "Updates are handled by your package manager".to_string(),
                     crate::app::StatusLevel::Info,

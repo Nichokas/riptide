@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Self-update for binaries installed via `install.sh` or a manual release download. The player checks GitHub Releases shortly after startup; when a newer version exists the footer hints at it and `U` opens a dialog to download, verify the SHA-256 checksum, and install it atomically. A failed check can be retried from the dialog (`u`). Pacman/AUR, Nix and Cargo installs are left to their own package manager. Also available headless as `riptide update`
+
 ## [1.0.1] - 2026-08-14
 
 ### Fixed

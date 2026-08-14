@@ -82,6 +82,18 @@ pub enum UpdateStatus {
     Done,
     /// Update failed; the binary is untouched.
     Failed,
+    /// Re-check found nothing newer. Mutually reachable with an earlier-found
+    /// `available` (release retracted between check and install).
+    UpToDate,
+}
+
+/// Command sent to the self-update actor thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateCmd {
+    /// (Re)run the availability check.
+    Check,
+    /// Download and install the newer release.
+    Install,
 }
 
 pub struct UpdateState {
@@ -102,6 +114,10 @@ pub struct UpdateState {
     /// recent check errored. Lets `U` say "check failed" instead of
     /// misreporting "up to date".
     pub check_error: Option<String>,
+    /// True while an install-triggered re-check is in flight (the request the
+    /// actor sends before downloading). Distinct from `checking`, which tracks
+    /// only the startup/manual availability check.
+    pub update_checking: bool,
 }
 
 impl Default for UpdateState {
@@ -117,6 +133,7 @@ impl Default for UpdateState {
             status: UpdateStatus::Confirming,
             error: None,
             check_error: None,
+            update_checking: false,
         }
     }
 }

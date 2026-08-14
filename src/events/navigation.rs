@@ -686,7 +686,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
     }
 }
 
-pub(crate) fn get_selected_track(app: &App) -> Option<crate::api::models::Track> {
+pub(super) fn get_selected_track(app: &App) -> Option<crate::api::models::Track> {
     if let Some(View::PlaylistDetail(detail)) = app.view_stack.last() {
         return detail.tracks.selected_item().cloned();
     }
