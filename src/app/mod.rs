@@ -20,6 +20,13 @@ use crate::search::SearchState;
 use std::collections::HashSet;
 use tokio::sync::{mpsc, watch};
 
+/// Placeholder art shown before anything is playing.
+///
+/// Embedded rather than read from `assets/` at runtime: that path resolved
+/// against the working directory, so it only ever loaded when the binary was
+/// launched from the repo root, and silently showed nothing once installed.
+const DEFAULT_ART: &[u8] = include_bytes!("../../assets/wave-logo-320-transparent.png");
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
 pub struct App {
@@ -100,10 +107,7 @@ impl App {
             playlists_sort: prefs.playlists_sort,
             now_playing: {
                 let mut np = NowPlaying::default();
-                // Load logo as default art
-                if let Ok(logo_bytes) = std::fs::read("assets/wave-logo-320-transparent.png") {
-                    np.art_bytes = Some(logo_bytes);
-                }
+                np.art_bytes = Some(DEFAULT_ART.to_vec());
                 np.volume = prefs.volume;
                 np.shuffle = prefs.shuffle;
                 np
