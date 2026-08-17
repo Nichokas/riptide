@@ -24,6 +24,18 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check riptide.spec version matches Cargo.toml
+        run: |
+          set -euo pipefail
+          CARGO_VER=$(sed -n '0,/^version = /s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          SPEC_VER=$(sed -n 's/^Version:[[:space:]]*//p' riptide.spec)
+          if [ "$CARGO_VER" != "$SPEC_VER" ]; then
+            echo "::error::riptide.spec is $SPEC_VER but Cargo.toml is $CARGO_VER."
+            echo "COPR builds the spec as committed, so a stale Version ships the wrong release."
+            exit 1
+          fi
+          echo "Version $CARGO_VER matches."
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -205,27 +217,32 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # COPR builds the committish configured in the project's SCM settings, not
+  # whatever this webhook says — the request carries no ref. Point that setting
+  # at the default branch: the release commit that bumps riptide.spec is on it
+  # and is what gets tagged, so the version COPR builds matches the tag.
+  #
+  # The project also needs "Enable internet access during builds" (Settings →
+  # Build options), because the spec builds with plain cargo against crates.io.
   copr-build:
     name: Build RPM on COPR
     needs: create-release
     runs-on: ubuntu-latest
+    continue-on-error: true    # Allowed to fail while COPR setup is pending
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
-
       - name: Trigger COPR build (scm webhook)
         env:
           COPR_WEBHOOK_URL: ${{ secrets.COPR_WEBHOOK_URL }}
         run: |
           set -euo pipefail
           if [ -z "${COPR_WEBHOOK_URL:-}" ]; then
-            echo "::error::COPR_WEBHOOK_URL secret is not set. Add it in Settings → Secrets → Actions."
-            echo "Find the 'Webhook URL' under your COPR project's Settings → Integrations → Webhook."
-            exit 1
+            echo "::notice::COPR_WEBHOOK_URL is not set — skipping the COPR build."
+            echo "Add it under Settings → Secrets → Actions, copying the 'Webhook URL'"
+            echo "from the COPR project's Settings → Integrations."
+            exit 0
           fi
-          echo "Tag: ${{ github.ref_name }}"
-          echo "Repo: ${{ github.repository }}"
           HTTP_CODE=$(curl -sS -o /tmp/copr_resp.txt -w "%{http_code}" \
             -X POST "$COPR_WEBHOOK_URL")
           cat /tmp/copr_resp.txt

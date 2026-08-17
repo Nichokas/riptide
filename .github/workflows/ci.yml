@@ -21,6 +21,18 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check riptide.spec version matches Cargo.toml
+        run: |
+          set -euo pipefail
+          CARGO_VER=$(sed -n '0,/^version = /s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          SPEC_VER=$(sed -n 's/^Version:[[:space:]]*//p' riptide.spec)
+          if [ "$CARGO_VER" != "$SPEC_VER" ]; then
+            echo "::error::riptide.spec is $SPEC_VER but Cargo.toml is $CARGO_VER."
+            echo "COPR builds the spec as committed, so a stale Version ships the wrong release."
+            exit 1
+          fi
+          echo "Version $CARGO_VER matches."
+
   test:
     name: Test
     runs-on: ubuntu-latest
