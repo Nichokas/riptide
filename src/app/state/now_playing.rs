@@ -32,7 +32,17 @@ pub struct NowPlaying {
     /// Cursor for pagination of the source playlist
     pub source_playlist_cursor: Option<String>,
     /// Saved queue order before shuffling; restored when shuffle is toggled off.
+    /// Kept a superset of `queue` while shuffle is on, so tracks queued in the
+    /// meantime survive the restore.
     pub original_queue: Vec<Track>,
+    /// Track whose stream URL is currently appended to mpv's playlist as the next
+    /// entry. mpv advances on its own, so this is the only way to tell whether it
+    /// moved to the track the app is about to display.
+    pub next_prefetched: Option<u64>,
+    /// Whether mpv has run off the end of its playlist. Nothing may be appended
+    /// while this holds: mpv *plays* a file appended to an exhausted playlist
+    /// instead of queueing it, which would move the audio without the app knowing.
+    pub mpv_exhausted: bool,
     /// Whether this track has been sent to Last.fm for scrobbling
     pub lastfm_sent: bool,
 }
@@ -60,12 +70,22 @@ impl Default for NowPlaying {
             source_playlist_next_offset: 0,
             source_playlist_cursor: None,
             original_queue: Vec::new(),
+            next_prefetched: None,
+            mpv_exhausted: true,
             lastfm_sent: false,
         }
     }
 }
 
 impl NowPlaying {
+    /// Detach the queue from the playlist it came from, so pages still in flight
+    /// for that playlist are not appended to a queue the user has since replaced.
+    pub fn clear_source_playlist(&mut self) {
+        self.source_playlist_uuid = None;
+        self.source_playlist_next_offset = 0;
+        self.source_playlist_cursor = None;
+    }
+
     pub fn progress_ratio(&self) -> f64 {
         if self.duration > 0.0 {
             (self.position / self.duration).clamp(0.0, 1.0)
