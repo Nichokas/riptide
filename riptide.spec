@@ -54,8 +54,14 @@ cargo test --release --locked
 
 %changelog
 * Mon Aug 17 2026 Ryan Cohan <noreply@github.com> - 1.1.0-1
-- Point the package at upstream rather than a fork
-- Build with plain cargo so the spec works on a network-enabled COPR builder
+- Added: Filter the Tracks, Artists, Albums and Playlists tabs by pressing / and typing.
+- Changed: The command palette moved from / to :, freeing / for filtering.
+- Fixed: The Now Playing bar — title, album art, details and lyrics — could describe a different track than the one actually playing.
+- Fixed: Pressing shuffle while a track was ending could hand playback to a different track, again leaving Now Playing behind.
+- Fixed: Turning shuffle off discarded every track queued since it was turned on, and could leave the selection pointing at a different track than the one playing
+- Fixed: Starting a new album or playlist while shuffle was on left the previous playlist still loading pages into the queue
+- Internal: The app now tracks what mpv actually has queued and re-syncs when the two disagree, instead of assuming mpv followed along.
+- Internal: Removing an item from a library list goes through one helper rather than three near-identical copies, and the blinking input cursor is defined once instead of in every text box
 
 * Fri Aug 14 2026 Nicolás Rodríguez Álvarez <noreply@github.com> - 1.0.0-1
 - Initial COPR packaging

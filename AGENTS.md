@@ -144,6 +144,19 @@ and `StatefulList::next_offset` no longer exist. Do not reintroduce them.
 - For large features: use incremental approach (see API Modernization section above)
 - Always sync with master before major work via rebase or merge
 
+### Staging a Release
+One commit (`chore: release vX.Y.Z`) bumps `Cargo.toml`, `Cargo.lock` and adds the
+`CHANGELOG.md` section. Then run **`./scripts/sync-spec.sh`**, which derives
+`riptide.spec`'s `Version` and `%changelog` from those two files, and include it
+in the same commit.
+
+The spec must be correct *before* the tag: COPR builds it as committed in git, not
+from the tag payload, so a spec updated during the release workflow would ship the
+wrong version. CI fails the lint job if the spec and `Cargo.toml` disagree.
+
+Do not tag or push — a `v*` tag fires the public release workflow, and that is the
+maintainer's call.
+
 ### File a PR
 Before filling, check whether a PR for this branch already exists. Review diff locally against 'origin/master' to make sure its contents mach the goal.
 
