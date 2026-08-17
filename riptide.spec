@@ -42,7 +42,9 @@ Rust (ratatui), driving mpv over its JSON IPC socket for playback.
 cargo build --release --locked
 
 %install
-install -D -p -m 0755 target/release/%{name} %{buildroot}%{_bindir}/%{name}
+# -s strips: with debug_package disabled rpm never strips the binary itself, and
+# an unstripped Rust binary carries a symbol table several times its own size.
+install -D -p -m 0755 -s target/release/%{name} %{buildroot}%{_bindir}/%{name}
 
 %check
 cargo test --release --locked
