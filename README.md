@@ -8,6 +8,7 @@
     - [Automated Install](#automated-install)
     - [Manual Install](#manual-install)
     - [Arch (AUR)](#arch-aur)
+    - [Fedora (COPR)](#fedora-copr)
     - [Build from Source](#build-from-source)
     - [Nix](#nix)
 - [Setup](#setup)
@@ -123,6 +124,29 @@ paru -S riptide
 # or if using yay
 yay -S riptide
 ```
+
+### Fedora (COPR)
+
+Riptide is available from a [COPR](https://copr.fedorainfracloud.org/) user
+repository, built for Fedora 43, 44 and 45 on x86_64:
+
+```bash
+sudo dnf copr enable fezzikthegiant/riptide
+sudo dnf install riptide
+```
+
+`mpv` is pulled in automatically as a dependency. Updates arrive through
+`dnf upgrade` like any other package.
+
+To remove the repository again:
+
+```bash
+sudo dnf copr disable fezzikthegiant/riptide
+```
+
+> [!NOTE]
+> COPR is Fedora's user-repository service, not the official Fedora
+> repositories — packages there are built and signed by the project maintainer.
 
 ### Build from Source
 
