@@ -49,12 +49,7 @@ impl App {
             }
 
             ApiResponse::AlbumUnfavorited { album_id } => {
-                self.fav_albums.items.retain(|a| a.id != album_id);
-                self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
-                self.fav_albums.selected = self
-                    .fav_albums
-                    .selected
-                    .min(self.fav_albums.items.len().saturating_sub(1));
+                self.fav_albums.remove_where(|a| a.id != album_id);
                 self.favorite_album_ids.remove(&album_id);
             }
 
