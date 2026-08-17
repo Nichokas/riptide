@@ -259,6 +259,48 @@ GOOD
 - Extract relationships and included objects manually
 - Build maps for efficient lookups during transformation
 
+### mpv's Playlist Is Not the Queue
+
+The app owns `now_playing.queue`; mpv holds only the current track plus one
+prefetched next (`--prefetch-playlist=yes` gives gapless playback). Two mpv
+behaviours make this harder than it looks, both verified against a live mpv:
+
+1. **The playlist is append-only.** Finished entries are never removed — only
+   `playlist-pos` advances. After `k` self-advances it holds `k + 2` entries with
+   `playlist-pos == k`, so any *absolute* `playlist-remove` index computed as if
+   the current track were at 0 will hit the wrong entry — and removing the playing
+   entry makes mpv jump to the next one while reporting `end-file` with
+   `reason: "stop"`, which the read loop ignores (only `"eof"` advances the queue).
+2. **A file appended to an exhausted playlist is *played*, not queued.** If mpv
+   has run off the end, `loadfile … append` starts it immediately.
+
+The design that satisfies both:
+
+- **`PlayerCmd::SetNext`** is the only way to queue a track. It sends
+  `playlist-clear` (keeps just the playing entry, so it cannot touch what is
+  playing and needs no index arithmetic) followed by `loadfile … append`, as one
+  burst so the playlist is never left empty behind the current track. It also
+  keeps the playlist from growing without bound.
+- **Never clear mpv's queued entry before the replacement URL is in hand.**
+  `App::replace_prefetched_next()` only *requests* the URL; the swap happens in the
+  `StreamUrl` handler. Clearing eagerly leaves the playlist empty for a whole
+  round-trip, and a track ending in that window turns the late prefetch into
+  hijacked playback (bug 2 above).
+- **`now_playing.mpv_exhausted`** gates every `SetNext`. Nothing may be appended
+  once mpv has run out of playlist.
+- **`now_playing.next_prefetched`** records what mpv actually holds.
+  `PlayerEvent::TrackEnded` compares it against `queue[queue_index + 1]` and
+  replays the track instead of advancing blindly when they disagree.
+- **`PlayerCmd::Play`** (`loadfile replace`) is the resync point — it resets the
+  playlist to one entry at position 0. Explicit actions (next/prev/play-from-queue)
+  all route through it, which is why they never desync, and why bugs here only
+  reproduce while tracks advance on their own.
+
+`src/app/playback.rs` tests carry a `FakeMpv` modelling all of the above; the
+`assert_in_sync` invariant (what mpv plays is what Now Playing shows) is the thing
+to preserve. Some of those tests depend on shuffle order — run the suite repeatedly
+when changing this area.
+
 ## Remaining V1 API Usage & Refactoring Opportunities
 
 ### Complete V1 API Usage Inventory
