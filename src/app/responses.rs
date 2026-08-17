@@ -61,12 +61,7 @@ impl App {
             ApiResponse::PlaylistSaved => {}
 
             ApiResponse::PlaylistRemoved { uuid } => {
-                self.playlists.items.retain(|p| p.uuid != uuid);
-                self.playlists.total = self.playlists.total.saturating_sub(1);
-                self.playlists.selected = self
-                    .playlists
-                    .selected
-                    .min(self.playlists.items.len().saturating_sub(1));
+                self.playlists.remove_where(|p| p.uuid != uuid);
             }
 
             ApiResponse::Playlists(items, total) => {
@@ -592,22 +587,12 @@ impl App {
             ApiResponse::FavoriteAdded | ApiResponse::ArtistFollowed => {}
 
             ApiResponse::FavoriteRemoved { track_id } => {
-                self.favorites.items.retain(|t| t.id != track_id);
-                self.favorites.total = self.favorites.total.saturating_sub(1);
-                self.favorites.selected = self
-                    .favorites
-                    .selected
-                    .min(self.favorites.items.len().saturating_sub(1));
+                self.favorites.remove_where(|t| t.id != track_id);
                 self.rebuild_favorite_track_ids();
             }
 
             ApiResponse::ArtistUnfollowed { artist_id } => {
-                self.artists.items.retain(|a| a.id != artist_id);
-                self.artists.total = self.artists.total.saturating_sub(1);
-                self.artists.selected = self
-                    .artists
-                    .selected
-                    .min(self.artists.items.len().saturating_sub(1));
+                self.artists.remove_where(|a| a.id != artist_id);
             }
 
             ApiResponse::RadioTracks { tracks } => {
