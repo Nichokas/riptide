@@ -211,9 +211,7 @@ impl App {
                 );
                 let is_now_playing =
                     self.now_playing.track.as_ref().map(|t| t.album.id) == Some(album_id);
-                tracing::debug!("is_now_playing={}", is_now_playing);
                 if is_now_playing {
-                    tracing::debug!("Setting now_playing.art_bytes");
                     self.now_playing.art_bytes = Some(image_data.clone());
                     self.now_playing.art_loading = false;
                 }
@@ -290,7 +288,6 @@ impl App {
                             total
                         );
                         if let Some(desc) = description {
-                            tracing::debug!("Setting description: {}", desc);
                             detail.playlist.description = Some(desc);
                         }
                         // Only the initial /playlists/{uuid} request carries the
@@ -301,7 +298,6 @@ impl App {
                             detail.playlist.number_of_tracks = Some(total);
                         }
                         if let Some(cov_url) = cover {
-                            tracing::debug!("Setting cover: {}", cov_url);
                             detail.playlist.cover = Some(cov_url.clone());
                             detail.art_loading = true;
                             let _ = self.api_tx.send(ApiRequest::FetchPlaylistArt {
@@ -511,7 +507,6 @@ impl App {
 
                     if track_changed {
                         // Clear old art and lyrics so we don't show the previous track's content
-                        tracing::debug!("Clearing old art and lyrics for new track");
                         self.now_playing.art_bytes = None;
                         self.now_playing.art_loading = true;
                         self.now_playing.lyrics_synced.clear();
@@ -573,7 +568,6 @@ impl App {
                     if let Some(url) = cover_url {
                         if url.ends_with(".jpg") || url.ends_with(".png") || url.ends_with(".jpeg")
                         {
-                            tracing::debug!("TrackDetails has valid image cover_url, fetching");
                             self.now_playing.art_loading = true;
                             self.now_playing.art_bytes = None;
                             let _ = self.api_tx.send(ApiRequest::FetchTrackArt {
@@ -703,6 +697,14 @@ impl App {
                 self.now_playing.codec = None;
                 self.now_playing.lastfm_sent = false;
                 if let Some(track) = &self.now_playing.track {
+                    tracing::info!(
+                        "playing [{}/{}] {} — {} (track {})",
+                        self.now_playing.queue_index + 1,
+                        self.now_playing.queue.len(),
+                        track.artist_name(),
+                        track.title,
+                        track.id
+                    );
                     let title = format!("{} — {}", track.artist_name(), track.title);
                     let _ = self.player_tx.send(PlayerCmd::SetMediaTitle(title));
                 }
@@ -716,8 +718,8 @@ impl App {
                     // it is not, the two sides have diverged — re-resolve the track so
                     // the StreamUrl handler issues a fresh `Play` and puts them back in
                     // step, instead of narrating a track that is not being played.
-                    let diverged = self.now_playing.next_prefetched
-                        != self.now_playing.queue.get(next_idx).map(|t| t.id);
+                    let prefetched = self.now_playing.next_prefetched;
+                    let diverged = prefetched != self.now_playing.queue.get(next_idx).map(|t| t.id);
 
                     self.now_playing.queue_index = next_idx;
                     self.now_playing.track = self.now_playing.queue.get(next_idx).cloned();
@@ -727,9 +729,10 @@ impl App {
                     self.now_playing.next_prefetched = None;
 
                     if diverged {
-                        tracing::debug!(
-                            "mpv did not advance to queue[{}]; replaying it to resync",
-                            next_idx
+                        tracing::warn!(
+                            "mpv did not advance to queue[{next_idx}] (expected track {:?}, had {:?}); replaying to resync",
+                            self.now_playing.queue.get(next_idx).map(|t| t.id),
+                            prefetched
                         );
                         self.now_playing.active = false;
                         if let Some(current) = self.now_playing.queue.get(next_idx) {

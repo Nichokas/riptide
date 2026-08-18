@@ -199,11 +199,30 @@ GOOD
 - Add debug logs at API boundaries for troubleshooting
 
 ### Logging
-- Always add debug logs for:
-  - API parsing (especially JSON:API responses)
-  - Pagination cursor changes
-  - Data extraction from responses
-- Use `tracing::debug!()` macro
+
+The default level is `warn`; `RIPTIDE_LOG_LEVEL` (or `RUST_LOG`) raises it. A bare
+level is scoped to the crate (`riptide=debug`) so dependencies stay quiet — hyper's
+connection-pool chatter was a quarter of the lines in a real bug report. A full
+directive (`riptide=debug,hyper=info`) is honoured as written.
+
+Choose the level by who needs the line:
+
+- `info!` — session lifecycle, readable on its own: startup, auth, what loaded and
+  how many, and each track as it starts playing.
+- `debug!` — one line per API request or parsed page, carrying counts and ids.
+- `warn!` — anomalies that would explain a bug report: duplicate entries,
+  references missing from a response body, mpv disagreeing with the queue.
+- `error!` — failed requests, with status and a body snippet.
+
+**Never log inside a per-item loop.** `Included object type: {}` fired once per
+JSON object and was 36% of one user's log. Aggregate into a single summary line,
+and `warn!` with a count when items were dropped. Do not pair "sending request"
+with "got response", and never dump a whole `Vec` of ids — one line stating the
+outcome and its counts replaces all of it.
+
+The point is a log someone can actually read: issue #43 went undiagnosed for days
+because the evidence (one track fetched 88 times) was buried in noise and no
+message named the anomaly.
 
 ### Pagination in Lists
 - Use `StatefulList<T>` with `pagination_cursor: Option<String>` field

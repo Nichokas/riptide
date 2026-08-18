@@ -14,19 +14,14 @@ fn parse_album_tracks(
     api_resp: &serde_json::Value,
     album_id: u64,
 ) -> Result<(Vec<Track>, Option<String>)> {
-    tracing::debug!("Parsing album tracks response");
-
     let mut track_ids = Vec::new();
     if let Some(items_data) = api_resp.get("data").and_then(|v| v.as_array()) {
-        tracing::debug!("Found items in data array, count: {}", items_data.len());
         for item_ref in items_data.iter() {
             if let Some(track_id) = item_ref.get("id").and_then(|v| v.as_str()) {
                 track_ids.push(track_id.to_string());
             }
         }
     }
-
-    tracing::debug!("Extracted {} track IDs", track_ids.len());
 
     let mut track_map = HashMap::new();
     if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
@@ -117,7 +112,6 @@ impl ApiClient {
         &self,
         next_url: Option<String>,
     ) -> Result<(Vec<Album>, Option<String>)> {
-        tracing::debug!("Fetching favorite albums");
         let token = self.token.read().await.clone();
         // links.next comes back as a path rather than an absolute URL, matching
         // how the other paginated endpoints here are followed.
@@ -128,8 +122,6 @@ impl ApiClient {
                 "{OPENAPI_BASE}/userCollectionAlbums/me/relationships/items?locale=en-US&sort=-addedAt&include=items.artists,items.coverArt"
             ),
         };
-
-        tracing::debug!("Favorite albums URL: {}", url);
         let resp = self
             .http
             .get(&url)
@@ -308,8 +300,6 @@ impl ApiClient {
                 }
             }
         }
-
-        tracing::debug!("Album {} cover extracted: {:?}", album_id, cover_url);
         let album = Album {
             id: album_id,
             title,
@@ -336,8 +326,6 @@ impl ApiClient {
 
         while let Some(url) = next_url {
             let full_url = absolute_url(&url);
-
-            tracing::debug!("Fetching album tracks page: {}", full_url);
             let resp = self
                 .http
                 .get(&full_url)
@@ -358,7 +346,6 @@ impl ApiClient {
             let (page_tracks, next_url_from_response) = parse_album_tracks(&api_resp, album_id)?;
 
             tracks.extend(page_tracks);
-            tracing::debug!("Album tracks page loaded, total so far: {}", tracks.len());
 
             next_url = next_url_from_response;
         }

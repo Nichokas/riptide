@@ -470,16 +470,22 @@ characters as a universal fallback.
 
 ## Logging
 
-Logs are written to `~/.local/share/riptide/riptide.log.<date>` and roll on a daily basis. By default, the logging level
-is set to `INFO` providing only errors and important events.
+Logs are written to `~/.local/share/riptide/riptide.log.<date>` and roll daily. By
+default only warnings and errors are recorded.
 
-To adjust logging verbosity for debugging, use the `RIPTIDE_LOG_LEVEL` environment variable:
+To adjust verbosity, use the `RIPTIDE_LOG_LEVEL` environment variable:
 
 ```bash
-RIPTIDE_LOG_LEVEL=debug riptide  # Verbose logging (includes all API requests)
-RIPTIDE_LOG_LEVEL=info riptide   # Standard logging (errors and important events)
+RIPTIDE_LOG_LEVEL=info riptide   # What loaded, and every track as it starts playing
+RIPTIDE_LOG_LEVEL=debug riptide  # Adds one line per API request and parsed page
 RIPTIDE_LOG_LEVEL=error riptide  # Errors only
 ```
+
+A plain level applies to riptide alone. To include a dependency's own logging, pass
+a full directive: `RIPTIDE_LOG_LEVEL=riptide=debug,hyper=debug riptide`.
+
+If you are attaching a log to a bug report, `info` is usually enough to show what
+happened, and `debug` adds the API detail.
 
 ## License
 

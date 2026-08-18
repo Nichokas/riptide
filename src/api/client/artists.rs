@@ -88,8 +88,6 @@ fn parse_artist_albums(api_resp: &serde_json::Value) -> Result<Vec<Album>> {
 fn parse_v2_user_collection_artists(
     api_resp: &serde_json::Value,
 ) -> Result<(Vec<Artist>, u32, Option<String>)> {
-    tracing::debug!("Parsing favorite artists from JSON:API response");
-
     let mut artist_ids = Vec::new();
     let mut added_at_map = HashMap::new();
 
@@ -109,10 +107,6 @@ fn parse_v2_user_collection_artists(
     });
 
     if let Some(items) = items_data {
-        tracing::debug!(
-            "Extracting {} artist references from relationships",
-            items.len()
-        );
         for item_ref in items {
             if let Some(id) = item_ref.get("id").and_then(|v| v.as_str()) {
                 artist_ids.push(id.to_string());
@@ -190,19 +184,11 @@ fn parse_v2_user_collection_artists(
         })
         .map(|s| s.to_string());
 
-    tracing::debug!(
-        "Artist parsing complete: {} artists parsed (total: {})",
-        artists.len(),
-        total
-    );
-
     Ok((artists, total, next_url))
 }
 
 impl ApiClient {
     pub async fn get_favorite_artists_v2(&self) -> Result<(Vec<Artist>, u32)> {
-        tracing::debug!("Fetching all favorite artists");
-
         let token = self.token.read().await.clone();
         let mut all_artists = Vec::new();
         let mut total = 0u32;
@@ -218,8 +204,6 @@ impl ApiClient {
             }
 
             let full_url = absolute_url(&url);
-
-            tracing::debug!("Fetching favorite artists page: {}", full_url);
             let resp = self
                 .http
                 .get(&full_url)
@@ -245,11 +229,7 @@ impl ApiClient {
             next_url = next_cursor;
         }
 
-        tracing::debug!(
-            "Fetched {} favorite artists (total: {})",
-            all_artists.len(),
-            total
-        );
+        tracing::info!("loaded {} followed artists", all_artists.len());
         Ok((all_artists, total))
     }
 
