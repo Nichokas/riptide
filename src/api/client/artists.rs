@@ -7,7 +7,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 
 use super::playlists::parse_playlist_relationship_items;
-use super::{ApiClient, OPENAPI_BASE};
+use super::{ApiClient, OPENAPI_BASE, absolute_url};
 use crate::api::models::*;
 
 fn parse_artist_albums(api_resp: &serde_json::Value) -> Result<Vec<Album>> {
@@ -217,11 +217,7 @@ impl ApiClient {
                 url = format!("{}{}include=items", url, separator);
             }
 
-            let full_url = if url.starts_with("http") {
-                url.clone()
-            } else {
-                format!("{OPENAPI_BASE}{url}")
-            };
+            let full_url = absolute_url(&url);
 
             tracing::debug!("Fetching favorite artists page: {}", full_url);
             let resp = self

@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 
 use super::parse::*;
-use super::{ApiClient, OPENAPI_BASE};
+use super::{ApiClient, OPENAPI_BASE, absolute_url};
 use crate::api::models::*;
 
 fn parse_album_tracks(
@@ -116,12 +116,18 @@ impl ApiClient {
     pub async fn get_favorite_albums(
         &self,
         next_url: Option<String>,
-    ) -> Result<(Vec<Album>, u32, Option<String>)> {
+    ) -> Result<(Vec<Album>, Option<String>)> {
         tracing::debug!("Fetching favorite albums");
         let token = self.token.read().await.clone();
-        let url = next_url.unwrap_or_else(|| {
-            format!("{OPENAPI_BASE}/userCollectionAlbums/me/relationships/items?locale=en-US&sort=-addedAt&include=items.artists,items.coverArt")
-        });
+        // links.next comes back as a path rather than an absolute URL, matching
+        // how the other paginated endpoints here are followed.
+        let url = match next_url {
+            Some(u) if u.starts_with("http") => u,
+            Some(u) => format!("{OPENAPI_BASE}{u}"),
+            None => format!(
+                "{OPENAPI_BASE}/userCollectionAlbums/me/relationships/items?locale=en-US&sort=-addedAt&include=items.artists,items.coverArt"
+            ),
+        };
 
         tracing::debug!("Favorite albums URL: {}", url);
         let resp = self
@@ -143,12 +149,7 @@ impl ApiClient {
         let api_resp: serde_json::Value = serde_json::from_str(&body)?;
 
         let mut albums = Vec::new();
-        let mut total = 0u32;
         let mut next_cursor = None;
-
-        if let Some(data_array) = api_resp.get("data").and_then(|v| v.as_array()) {
-            total = data_array.len() as u32;
-        }
 
         // Build album map from included
         let mut album_map = HashMap::new();
@@ -218,7 +219,7 @@ impl ApiClient {
             }
         }
 
-        Ok((albums, total, next_cursor))
+        Ok((albums, next_cursor))
     }
 
     pub async fn add_favorite_album(&self, album_id: u64) -> Result<()> {
@@ -334,11 +335,7 @@ impl ApiClient {
         ));
 
         while let Some(url) = next_url {
-            let full_url = if url.starts_with("http") {
-                url.clone()
-            } else {
-                format!("{OPENAPI_BASE}{url}")
-            };
+            let full_url = absolute_url(&url);
 
             tracing::debug!("Fetching album tracks page: {}", full_url);
             let resp = self

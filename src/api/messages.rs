@@ -208,7 +208,8 @@ pub enum ApiResponse {
     },
     FavAlbumsPage {
         albums: Vec<Album>,
-        total: u32,
+        /// Cursor for the following page; None means the collection is complete.
+        /// These endpoints report no total, so this is the only end signal.
         next_url: Option<String>,
     },
     AlbumFavorited {

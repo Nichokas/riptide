@@ -16,23 +16,14 @@ impl App {
                 self.rebuild_favorite_artist_ids();
             }
 
-            ApiResponse::FavAlbumsPage {
-                albums,
-                total,
-                next_url,
-            } => {
+            ApiResponse::FavAlbumsPage { albums, next_url } => {
                 let existing_ids: std::collections::HashSet<u64> =
                     self.fav_albums.items.iter().map(|a| a.id).collect();
                 let unique: Vec<Album> = albums
                     .into_iter()
                     .filter(|a| !existing_ids.contains(&a.id))
                     .collect();
-                self.fav_albums.append(unique, total);
-                let has_next = next_url.is_some();
-                self.fav_albums.pagination_cursor = next_url;
-                if !has_next {
-                    self.fav_albums.exhausted = true;
-                }
+                self.fav_albums.append_page(unique, next_url);
                 self.sort_fav_albums();
                 self.rebuild_favorite_album_ids();
                 if !self.fav_albums.exhausted {

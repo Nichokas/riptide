@@ -115,13 +115,21 @@ Lists are fetched in full before they reach the UI. Two mechanisms do this:
 
 1. **Client drains internally** — `while let Some(url) = next_url` inside the
    client method, returning the whole collection in one `ApiResponse`. Used by
-   favourites, artists, artist detail (top tracks/albums/EPs/singles), album
-   tracks. These requests carry no cursor, so **a second request refetches
+   favourites, artists, playlists, artist detail (top tracks/albums/EPs/singles),
+   album tracks. These requests carry no cursor, so **a second request refetches
    everything from the start** — the response handler must set
    `exhausted = true`.
 2. **Handler re-fires the next page** — `ApiResponse` handlers for fav albums,
    playlist detail and search immediately request the next cursor page until
    exhausted, without waiting for the user to scroll.
+
+**The v2 collection endpoints report no total.** A response carries `data`,
+`included` and `links` only — verified live against `/userCollectionAlbums/me`
+and `/userCollectionPlaylists/me`. So `links.next` is the *only* end-of-collection
+signal, and `total` can only ever mean "what has arrived so far". Use
+`StatefulList::append_page`, never `append` with a total synthesised from the page
+length: `items.len() >= total` is then true immediately and paging stops after one
+page. `links.next` is also a **path, not a URL** — resolve it with `absolute_url`.
 
 Scroll-triggered loading was removed: `should_load_more()`, `check_load_more()`
 and `StatefulList::next_offset` no longer exist. Do not reintroduce them.

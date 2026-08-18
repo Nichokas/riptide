@@ -415,7 +415,29 @@ pub(super) fn parse_v2_user_playlists(
 }
 
 impl ApiClient {
-    pub async fn get_user_collection_playlists(
+    /// Drains every page of the collection. Callers get the whole thing, so a
+    /// forgotten cursor cannot silently truncate the library — which is exactly
+    /// what capped this list at one page before.
+    pub async fn get_user_collection_playlists(&self) -> Result<Vec<Playlist>> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let (page, next) = self
+                .user_collection_playlists_page(cursor.as_deref())
+                .await?;
+            all.extend(page);
+            match next {
+                Some(c) => cursor = Some(c),
+                None => break,
+            }
+        }
+
+        tracing::debug!("Fetched {} playlists from the v2 collection", all.len());
+        Ok(all)
+    }
+
+    async fn user_collection_playlists_page(
         &self,
         cursor: Option<&str>,
     ) -> Result<(Vec<Playlist>, Option<String>)> {
