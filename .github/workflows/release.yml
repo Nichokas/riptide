@@ -242,14 +242,33 @@ jobs:
           COPR_WEBHOOK_URL: ${{ secrets.COPR_WEBHOOK_URL }}
         run: |
           set -euo pipefail
-          if [ -z "${COPR_WEBHOOK_URL:-}" ]; then
+          # A secret pasted into GitHub commonly keeps a trailing newline, and curl
+          # rejects that as "Malformed input to a URL function" without naming the
+          # newline or the variable. Strip whitespace before using it. Never echo
+          # the result: masking matches the secret verbatim, so a trimmed copy
+          # would print in the clear.
+          url="$(printf '%s' "${COPR_WEBHOOK_URL:-}" | tr -d '[:space:]')"
+          if [ -z "$url" ]; then
             echo "::notice::COPR_WEBHOOK_URL is not set — skipping the COPR build."
             echo "Add it under Settings → Secrets → Actions, copying the 'Webhook URL'"
             echo "from the COPR project's Settings → Integrations."
             exit 0
           fi
-          HTTP_CODE=$(curl -sS -o /tmp/copr_resp.txt -w "%{http_code}" \
-            -X POST "$COPR_WEBHOOK_URL")
+          case "$url" in
+            https://*) ;;
+            *)
+              echo "::error::COPR_WEBHOOK_URL is not an https:// URL (${#url} characters after trimming)."
+              echo "Copy the full 'Webhook URL' from the COPR project's Settings → Integrations."
+              exit 1
+              ;;
+          esac
+
+          status=0
+          HTTP_CODE=$(curl -sS -o /tmp/copr_resp.txt -w "%{http_code}" -X POST "$url") || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::curl exited $status posting to the COPR webhook."
+            exit "$status"
+          fi
           cat /tmp/copr_resp.txt
           echo "HTTP $HTTP_CODE"
           if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
