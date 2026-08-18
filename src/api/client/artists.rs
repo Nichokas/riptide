@@ -71,7 +71,6 @@ fn parse_artist_albums(api_resp: &serde_json::Value) -> Result<Vec<Album>> {
                             release_date,
                             cover: None,
                             artist: None,
-                            audio_quality: None,
                             media_metadata,
                             added_at: None,
                             album_type,

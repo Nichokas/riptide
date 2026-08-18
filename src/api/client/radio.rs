@@ -107,12 +107,10 @@ fn parse_radio_response(api_resp: &serde_json::Value) -> Result<Vec<Track>> {
                                 release_date: None,
                                 cover: None,
                                 artist: None,
-                                audio_quality: None,
                                 media_metadata: None,
                                 added_at: None,
                                 album_type: None,
                             },
-                            audio_quality: None,
                             media_metadata,
                             added_at: None,
                         });

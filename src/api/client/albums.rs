@@ -83,12 +83,10 @@ fn parse_album_tracks(
                                 release_date: None,
                                 cover: None,
                                 artist: None,
-                                audio_quality: None,
                                 media_metadata: None,
                                 added_at: None,
                                 album_type: None,
                             },
-                            audio_quality: None,
                             media_metadata,
                             added_at: None,
                         });
@@ -184,7 +182,6 @@ impl ApiClient {
                                             .map(|s| s.to_string()),
                                         cover,
                                         artist: artist_name.map(|name| ArtistRef { name }),
-                                        audio_quality: None,
                                         media_metadata,
                                         added_at: item
                                             .get("meta")
@@ -307,7 +304,6 @@ impl ApiClient {
             release_date,
             cover: cover_url.clone(),
             artist: None,
-            audio_quality: None,
             media_metadata: None,
             added_at: None,
             album_type: None,

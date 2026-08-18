@@ -106,7 +106,6 @@ fn parse_v2_user_collection_tracks(
                                     name: artist_name.clone(),
                                 })
                             },
-                            audio_quality: None,
                             media_metadata: None,
                             added_at: None,
                             album_type: None,
@@ -125,7 +124,6 @@ fn parse_v2_user_collection_tracks(
                             },
                             artists: Vec::new(),
                             album,
-                            audio_quality: None,
                             media_metadata: extract_media_metadata(attrs),
                             added_at: added_at_map.get(&track_id).cloned(),
                         };
@@ -222,7 +220,6 @@ fn parse_v2_track_details(api_resp: &serde_json::Value) -> Result<(Track, Option
         release_date: None,
         cover: None,
         artist: None,
-        audio_quality: None,
         media_metadata: None,
         added_at: None,
         album_type: None,
@@ -311,7 +308,6 @@ fn parse_v2_track_details(api_resp: &serde_json::Value) -> Result<(Track, Option
         artist,
         artists,
         album,
-        audio_quality: None,
         media_metadata: None,
         added_at: None,
     };

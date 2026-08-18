@@ -78,14 +78,7 @@ pub(super) fn render_now_playing(f: &mut Frame, app: &App, area: Rect) {
                     (Some(c), Some(r)) => Some(format!("{c} · {r}")),
                     (Some(c), None) => Some(c),
                     (None, Some(r)) => Some(r),
-                    (None, None) => {
-                        let q = t.quality_display();
-                        if q.is_empty() {
-                            None
-                        } else {
-                            Some(q.to_owned())
-                        }
-                    }
+                    (None, None) => None,
                 }
             };
             let heart = if app.favorite_track_ids.contains(&t.id) {
