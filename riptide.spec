@@ -6,7 +6,7 @@
 %global debug_package %{nil}
 
 Name:           riptide
-Version:        1.1.1
+Version:        1.2.0
 Release:        1%{?dist}
 Summary:        Terminal UI music player for Tidal
 License:        GPL-3.0-or-later
@@ -55,6 +55,13 @@ cargo test --release --locked
 %{_bindir}/%{name}
 
 %changelog
+* Tue Aug 18 2026 Ryan Cohan <noreply@github.com> - 1.2.0-1
+- Added: Press u to undo the last thing you removed from your library — a track, artist, album or playlist.
+- Added: Dolby Atmos tracks and albums now show an ATMOS badge.
+- Changed: Removing something from your library moved from f to d, matching what d already does in the queue.
+- Internal: The identical quality-badge implementations on tracks and albums collapsed into one helper
+- Internal: Dropped the audioQuality field from tracks and albums along with the MQA and 320 badges that read it.
+
 * Tue Aug 18 2026 Ryan Cohan <noreply@github.com> - 1.1.1-1
 - Fixed: The Albums and Playlists tabs stopped at the first page, showing about 20 entries however large the library was.
 - Fixed: A track that appeared twice in a row in the queue restarted from the beginning over and over, and the repeated stream requests eventually drew a "429 Too Many Requests" from Tidal.

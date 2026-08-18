@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-08-18
+
+### Added
+- Press `u` to undo the last thing you removed from your library — a track, artist, album or playlist. The undo stays available until the next removal rather than expiring with the message, so it still works if you only notice the mistake minutes later. Note that Tidal stamps a fresh "added" date on the way back in, so a restored item sorts as newly added rather than returning to its old position
+- Dolby Atmos tracks and albums now show an `ATMOS` badge. They previously showed no quality badge at all: Tidal frequently tags them `DOLBY_ATMOS` with no `LOSSLESS` alongside, and the badge only looked for the lossless tags
+
+### Changed
+- Removing something from your library moved from `f` to `d`, matching what `d` already does in the queue. In the Tracks, Artists, Albums and Playlists tabs every row is by definition already saved, so `f` there could only ever remove — which people were firing by accident with a finger resting on the key (#39). `f` still favorites, follows and saves everywhere it can actually add something, and in the library tabs it now points you at `d` instead
+
+### Internal
+- The identical quality-badge implementations on tracks and albums collapsed into one helper
+- Dropped the `audioQuality` field from tracks and albums along with the MQA and 320 badges that read it. The v2 API never sends it, so those badges could not fire; the stream endpoint's own `audioQuality`, which is still live, is untouched
+
 ## [1.1.1] - 2026-08-18
 
 ### Fixed
