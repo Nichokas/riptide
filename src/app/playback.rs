@@ -710,6 +710,90 @@ mod tests {
         }
     }
 
+    /// Issue #43: with the same track at `queue_index` and `queue_index + 1`, the
+    /// prefetch response satisfied the "current track" branch, re-issued `Play`,
+    /// and requested the URL again — restarting the song in a loop until Tidal
+    /// answered 429.
+    #[test]
+    fn a_duplicated_track_does_not_restart_playback_in_a_loop() {
+        let (mut app, mut api_rx, mut player_rx) = make_app_watching_all();
+        let mut mpv = FakeMpv::default();
+        app.play_tracks(vec![track(7), track(7), track(9)], 0);
+
+        let mut plays = 0;
+        for _ in 0..12 {
+            while let Ok(cmd) = player_rx.try_recv() {
+                let was = mpv.playing();
+                if matches!(cmd, PlayerCmd::Play(_)) {
+                    plays += 1;
+                }
+                mpv.apply(cmd);
+                if mpv.playing().is_some() && mpv.playing() != was {
+                    app.handle_player_event(PlayerEvent::TrackStarted);
+                }
+            }
+            let reqs: Vec<ApiRequest> = std::iter::from_fn(|| api_rx.try_recv().ok()).collect();
+            if reqs.is_empty() {
+                break;
+            }
+            for req in reqs {
+                if let ApiRequest::ResolveStreamUrl { track_id } = req {
+                    app.handle_api_response(crate::api::ApiResponse::StreamUrl {
+                        track_id,
+                        url: format!("url-{track_id}"),
+                    });
+                }
+            }
+        }
+
+        assert_eq!(plays, 1, "the track must be loaded once, not restarted");
+        assert_eq!(mpv.playing(), Some(7));
+        assert_eq!(
+            mpv.playlist.len(),
+            2,
+            "the duplicate belongs in mpv's queue, not on top of what is playing"
+        );
+    }
+
+    #[test]
+    fn queueing_the_playing_track_again_does_not_restart_it() {
+        let (mut app, mut api_rx, mut player_rx) = make_app_watching_all();
+        let mut mpv = FakeMpv::default();
+        app.play_tracks(vec![track(7)], 0);
+        settle(&mut app, &mut mpv, &mut api_rx, &mut player_rx);
+        assert_eq!(mpv.playing(), Some(7));
+
+        app.add_to_queue(track(7));
+
+        let mut plays = 0;
+        for _ in 0..12 {
+            while let Ok(cmd) = player_rx.try_recv() {
+                if matches!(cmd, PlayerCmd::Play(_)) {
+                    plays += 1;
+                }
+                mpv.apply(cmd);
+            }
+            let reqs: Vec<ApiRequest> = std::iter::from_fn(|| api_rx.try_recv().ok()).collect();
+            if reqs.is_empty() {
+                break;
+            }
+            for req in reqs {
+                if let ApiRequest::ResolveStreamUrl { track_id } = req {
+                    app.handle_api_response(crate::api::ApiResponse::StreamUrl {
+                        track_id,
+                        url: format!("url-{track_id}"),
+                    });
+                }
+            }
+        }
+
+        assert_eq!(
+            plays, 0,
+            "queueing a track must never restart the current one"
+        );
+        assert_eq!(mpv.playing(), Some(7));
+    }
+
     #[test]
     fn shuffle_off_keeps_tracks_queued_while_shuffling() {
         let mut app = make_app();

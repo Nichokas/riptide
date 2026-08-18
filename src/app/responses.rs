@@ -55,7 +55,24 @@ impl App {
                 self.sort_playlists();
             }
 
-            ApiResponse::Favorites(items, total) => {
+            ApiResponse::Favorites(items, _total) => {
+                // Tidal can hand back the same track more than once — reported by
+                // users whose library was imported from another service. Showing
+                // both is confusing on its own, and adjacent duplicates used to
+                // send playback into a restart loop. The albums path already
+                // collapses its collection the same way.
+                let received = items.len();
+                let mut seen = std::collections::HashSet::new();
+                let items: Vec<Track> = items.into_iter().filter(|t| seen.insert(t.id)).collect();
+                if items.len() < received {
+                    tracing::warn!(
+                        "Tidal returned {} duplicate favourite track entries ({} unique of {})",
+                        received - items.len(),
+                        items.len(),
+                        received
+                    );
+                }
+                let total = items.len() as u32;
                 self.favorites.append(items, total);
                 self.favorites.exhausted = true;
                 self.sort_favorites();
@@ -473,7 +490,20 @@ impl App {
 
             ApiResponse::StreamUrl { track_id, url } => {
                 let idx = self.now_playing.queue_index;
-                if self.now_playing.queue.get(idx).map(|t| t.id) == Some(track_id) {
+                // A queue can hold the same track twice in a row — a duplicated
+                // favourite, or just pressing `a` on what is already playing — and
+                // the response carries only an id, so "this is the current track"
+                // and "this is the prefetch" look identical. Every path that
+                // genuinely wants playback to start clears `active` first, so an id
+                // match while that track is still playing must be the prefetch.
+                // Treating it as the current track re-issues `Play`, which restarts
+                // the song and requests the URL again, looping until Tidal answers
+                // 429.
+                let already_playing = self.now_playing.active
+                    && self.now_playing.track.as_ref().map(|t| t.id) == Some(track_id);
+                if self.now_playing.queue.get(idx).map(|t| t.id) == Some(track_id)
+                    && !already_playing
+                {
                     // Always update the track when we get a successful stream URL for the current track
                     let track_changed =
                         self.now_playing.track.as_ref().map(|t| t.id) != Some(track_id);
