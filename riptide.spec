@@ -6,7 +6,7 @@
 %global debug_package %{nil}
 
 Name:           riptide
-Version:        1.1.0
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        Terminal UI music player for Tidal
 License:        GPL-3.0-or-later
@@ -55,6 +55,13 @@ cargo test --release --locked
 %{_bindir}/%{name}
 
 %changelog
+* Tue Aug 18 2026 Ryan Cohan <noreply@github.com> - 1.1.1-1
+- Fixed: The Albums and Playlists tabs stopped at the first page, showing about 20 entries however large the library was.
+- Fixed: A track that appeared twice in a row in the queue restarted from the beginning over and over, and the repeated stream requests eventually drew a "429 Too Many Requests" from Tidal.
+- Fixed: Tracks that Tidal reports more than once in your favorites are now listed once.
+- Internal: Logs are readable again.
+- Internal: A failed AUR or COPR publish now fails the release run instead of being tolerated
+
 * Mon Aug 17 2026 Ryan Cohan <noreply@github.com> - 1.1.0-1
 - Added: Filter the Tracks, Artists, Albums and Playlists tabs by pressing / and typing.
 - Changed: The command palette moved from / to :, freeing / for filtering.

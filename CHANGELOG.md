@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-08-18
+
+### Fixed
+- The Albums and Playlists tabs stopped at the first page, showing about 20 entries however large the library was. Albums synthesised a total from the page it had just received, which made the list look complete as soon as one page arrived, and the cursor for the next page was a path being used as a URL; Playlists fetched a single page and discarded the cursor entirely
+- A track that appeared twice in a row in the queue restarted from the beginning over and over, and the repeated stream requests eventually drew a "429 Too Many Requests" from Tidal. Stream URLs are matched by track id, so the prefetch for the second copy was mistaken for a request to play the first. Queueing the track that is already playing triggered this too (#43)
+- Tracks that Tidal reports more than once in your favorites are now listed once. Libraries imported from another service can end up with repeated entries (#43)
+
+### Internal
+- Logs are readable again. A bare `RIPTIDE_LOG_LEVEL` now applies to riptide alone, so a debug log is no longer a quarter connection-pool chatter from an HTTP dependency, and the per-object parser lines that made up another third are gone. `info` reports what loaded and every track as it starts; anomalies that explain a bug report — duplicate entries, missing references, mpv disagreeing with the queue — are warnings instead of being buried in debug
+- A failed AUR or COPR publish now fails the release run instead of being tolerated
+
 ## [1.1.0] - 2026-08-17
 
 ### Added
