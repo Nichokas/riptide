@@ -234,7 +234,6 @@ jobs:
     name: Build RPM on COPR
     needs: create-release
     runs-on: ubuntu-latest
-    continue-on-error: true    # Allowed to fail while COPR setup is pending
     permissions:
       contents: read
     steps:
@@ -262,7 +261,6 @@ jobs:
     name: Update AUR
     needs: create-release
     runs-on: ubuntu-latest
-    continue-on-error: true    # Allowed to fail while AUR pushes are blocked
     steps:
       - uses: actions/checkout@v7
 
