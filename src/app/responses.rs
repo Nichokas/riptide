@@ -484,7 +484,11 @@ impl App {
                 self.search.playlists_next_url = page.next_url;
             }
 
-            ApiResponse::StreamUrl { track_id, url } => {
+            ApiResponse::StreamUrl {
+                track_id,
+                url,
+                delivered,
+            } => {
                 let idx = self.now_playing.queue_index;
                 // A queue can hold the same track twice in a row — a duplicated
                 // favourite, or just pressing `a` on what is already playing — and
@@ -522,6 +526,7 @@ impl App {
                     // `loadfile replace` wipes mpv's playlist and always loads media,
                     // so anything prefetched into it is gone and mpv is no longer dry.
                     let _ = self.player_tx.send(PlayerCmd::Play(url));
+                    self.now_playing.delivered = delivered;
                     self.now_playing.next_prefetched = None;
                     self.now_playing.mpv_exhausted = false;
                     if let Some(next) = self.now_playing.queue.get(idx + 1) {

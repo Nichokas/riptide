@@ -68,6 +68,38 @@ localhost manifest server in `src/manifest.rs` are load-bearing. Do not remove
 them as "dead v1 code." Full write-up is in the doc comment on
 `get_stream_url` in `src/api/client.rs`.
 
+### Hi-Res Playback Is Unreachable — Do Not Re-Attempt
+
+A `MAX` badge means the release exists in hi-res in Tidal's catalogue. It does not
+mean riptide can be served it. Three walls, each verified against the live API:
+
+1. **The account is not the limit.** `/users/{id}/subscription` reports
+   `highestSoundQuality: HI_RES` on a subscriber account, yet requesting
+   `audioquality=HI_RES_LOSSLESS` for a `HIRES_LOSSLESS` track returns
+   `audioQuality=LOSSLESS, bitDepth=16, sampleRate=44100`. The built-in client is
+   capped at lossless.
+2. **Developer-portal credentials cannot log in.** `device_authorization` answers
+   `400 {"error_description":"Client is not a Limited Input Device client"}`. That
+   grant is restricted to TV/console/automotive clients, which is why the default
+   client id is an extracted Android Automotive one.
+3. **Portal tokens cannot stream even so.** A user token obtained through the
+   portal's authorization-code flow (as the Swagger console does) gets `401` from
+   `/tracks/{id}/playbackinfopostpaywall`. Implementing that flow would buy a login
+   and no audio.
+
+`config.client_id` / `client_secret` remain useful: swapping in a *different
+extracted Limited Input Device* client works, and is the only route if a hi-res
+entitled one is ever found. They are not for portal credentials — `auth_error` in
+`src/api/auth.rs` detects that case and says so.
+
+The `QUALITIES` order in `streaming.rs` (`LOSSLESS` first, so `HI_RES_LOSSLESS` is
+never reached) is therefore moot, not a bug: reaching it returns the same 16/44.1.
+
+`now_playing.delivered` carries the `bitDepth`/`sampleRate` the server actually
+returned, and the now-playing bar shows them. That is the honest counterpart to
+the badge — do not infer bit depth from mpv, which reports the decoder's output
+format (24-bit FLAC decodes to `s32`).
+
 ### Do NOT Attempt Large Refactors on Long-Lived Branches
 
 **Why:** Previous attempt to migrate multiple endpoints on a feature branch that diverged from master resulted in cascading conflicts during rebase/merge attempts. Structural changes to shared types (StatefulList, Config) on different branches are nearly impossible to reconcile.

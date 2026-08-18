@@ -258,6 +258,28 @@ It is created automatically on first run. Example:
 }
 ```
 
+### Client credentials
+
+`client_id` and `client_secret` are `null` by default, which uses Riptide's
+built-in client. You only need to set them to use a different one.
+
+> [!IMPORTANT]
+> They must belong to a **Limited Input Device** client — the kind Tidal registers
+> for TVs, consoles and car systems. Riptide signs in with OAuth's device flow
+> (it prints a code you approve in a browser), and Tidal only permits that flow
+> for those clients.
+>
+> Credentials from the [Tidal developer portal](https://developer.tidal.com) are
+> **not** of that kind. They are issued for the authorization-code and
+> client-credentials flows, so `device_authorization` rejects them with
+> *"Client is not a Limited Input Device client"* — and their tokens are refused
+> by the endpoint Riptide streams through, so a browser login would not help
+> either.
+
+Note that the built-in client is limited to lossless (16-bit/44.1 kHz). A `MAX`
+badge means the release exists in hi-res in Tidal's catalogue, not that it can be
+streamed here; the now-playing bar shows what was actually delivered.
+
 ### Preferences
 
 The `prefs` block records UI choices so they survive a restart. It is written once when Riptide exits, and every key is

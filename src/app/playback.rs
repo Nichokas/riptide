@@ -594,6 +594,7 @@ mod tests {
                     app.handle_api_response(crate::api::ApiResponse::StreamUrl {
                         track_id,
                         url: format!("url-{track_id}"),
+                        delivered: Default::default(),
                     });
                 }
                 progressed = true;
@@ -739,6 +740,7 @@ mod tests {
                     app.handle_api_response(crate::api::ApiResponse::StreamUrl {
                         track_id,
                         url: format!("url-{track_id}"),
+                        delivered: Default::default(),
                     });
                 }
             }
@@ -780,6 +782,7 @@ mod tests {
                     app.handle_api_response(crate::api::ApiResponse::StreamUrl {
                         track_id,
                         url: format!("url-{track_id}"),
+                        delivered: Default::default(),
                     });
                 }
             }

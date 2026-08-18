@@ -190,6 +190,8 @@ pub enum ApiResponse {
     StreamUrl {
         track_id: u64,
         url: String,
+        /// What the server actually served, which a `MAX` badge does not promise.
+        delivered: DeliveredQuality,
     },
     Lyrics {
         track_id: u64,

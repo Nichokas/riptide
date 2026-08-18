@@ -315,7 +315,11 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         },
 
         ApiRequest::ResolveStreamUrl { track_id } => match client.get_stream_url(track_id).await {
-            Ok(url) => ApiResponse::StreamUrl { track_id, url },
+            Ok((url, delivered)) => ApiResponse::StreamUrl {
+                track_id,
+                url,
+                delivered,
+            },
             Err(e) => ApiResponse::Error(e.to_string()),
         },
 

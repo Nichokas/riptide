@@ -204,6 +204,15 @@ pub struct LyricsResponse {
 
 // ── Stream URL ────────────────────────────────────────────────────────────────
 
+/// What Tidal actually delivered for a stream, as opposed to what the catalogue
+/// advertises. A `MAX` badge means the release exists in hi-res; it does not mean
+/// this client is entitled to be served it, so these are the numbers to show.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DeliveredQuality {
+    pub bit_depth: Option<i32>,
+    pub sample_rate: Option<i32>,
+}
+
 /// Response from /tracks/{id}/playbackinfopostpaywall
 #[derive(Debug, Deserialize)]
 pub struct PlaybackInfo {
@@ -216,10 +225,8 @@ pub struct PlaybackInfo {
     #[allow(dead_code)]
     #[serde(rename = "audioMode", default)]
     pub audio_mode: Option<String>,
-    #[allow(dead_code)]
     #[serde(rename = "bitDepth", default)]
     pub bit_depth: Option<i32>,
-    #[allow(dead_code)]
     #[serde(rename = "sampleRate", default)]
     pub sample_rate: Option<i32>,
 }
