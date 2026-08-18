@@ -794,6 +794,91 @@ mod tests {
         assert_eq!(mpv.playing(), Some(7));
     }
 
+    // ── Library removal and undo (#39) ────────────────────────────────────────
+
+    #[test]
+    fn undo_restores_the_last_removed_track() {
+        let (mut app, mut api_rx) = make_app_watching_api();
+        app.favorites.append(vec![track(1), track(2)], 2);
+        app.rebuild_favorite_track_ids();
+        let victim = app.favorites.items[0].clone();
+
+        app.unfavorite_track(&victim);
+        // The list itself shrinks when the API confirms; what matters here is that
+        // the removal was recorded and can be replayed.
+        assert!(app.last_removal.is_some());
+        while api_rx.try_recv().is_ok() {}
+
+        app.undo_last_removal();
+
+        assert!(app.last_removal.is_none(), "the slot is consumed");
+        let requested: Vec<u64> = std::iter::from_fn(|| api_rx.try_recv().ok())
+            .filter_map(|r| match r {
+                ApiRequest::FavoriteTrack { track_id } => Some(track_id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            requested,
+            vec![victim.id],
+            "re-favorites exactly what was removed"
+        );
+    }
+
+    #[test]
+    fn undo_with_nothing_removed_is_harmless() {
+        let (mut app, mut api_rx) = make_app_watching_api();
+        while api_rx.try_recv().is_ok() {} // App::new queues the startup loads
+
+        app.undo_last_removal();
+
+        assert!(app.last_removal.is_none());
+        assert!(
+            api_rx.try_recv().is_err(),
+            "an idle undo must not call the API"
+        );
+    }
+
+    #[test]
+    fn a_second_undo_does_not_re_add_something_removed_on_purpose() {
+        let (mut app, mut api_rx) = make_app_watching_api();
+        app.favorites.append(vec![track(1)], 1);
+        let victim = app.favorites.items[0].clone();
+
+        app.unfavorite_track(&victim);
+        app.undo_last_removal();
+        while api_rx.try_recv().is_ok() {}
+
+        app.undo_last_removal();
+
+        assert!(
+            api_rx.try_recv().is_err(),
+            "the slot was already spent; a second undo must do nothing"
+        );
+    }
+
+    #[test]
+    fn only_the_most_recent_removal_is_undoable() {
+        let (mut app, mut api_rx) = make_app_watching_api();
+        app.favorites.append(vec![track(1), track(2)], 2);
+        let first = app.favorites.items[0].clone();
+        let second = app.favorites.items[1].clone();
+
+        app.unfavorite_track(&first);
+        app.unfavorite_track(&second);
+        while api_rx.try_recv().is_ok() {}
+
+        app.undo_last_removal();
+
+        let requested: Vec<u64> = std::iter::from_fn(|| api_rx.try_recv().ok())
+            .filter_map(|r| match r {
+                ApiRequest::FavoriteTrack { track_id } => Some(track_id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(requested, vec![second.id]);
+    }
+
     #[test]
     fn shuffle_off_keeps_tracks_queued_while_shuffling() {
         let mut app = make_app();

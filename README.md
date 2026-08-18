@@ -398,7 +398,9 @@ It stays applied when you switch tabs, and `Esc` clears it from anywhere on the 
 | `↓`     | Down                             |
 | `Enter` | Select/Open                      |
 | `a`     | Add to queue                     |
-| `f`     | Toggle favorite/follow/save      |
+| `f`     | Favorite/follow/save             |
+| `d`     | Remove from library              |
+| `u`     | Undo the last removal            |
 | `g`     | Go to artist                     |
 | `s`     | Sort (opens on the current sort) |
 | `r`     | Start radio                      |
