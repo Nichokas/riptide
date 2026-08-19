@@ -103,11 +103,11 @@ impl KeybindGroup {
             title: "Navigation",
             binds: &[
                 Keybind {
-                    key: "↑",
+                    key: "↑ or k",
                     action: "Up",
                 },
                 Keybind {
-                    key: "↓",
+                    key: "↓ or j",
                     action: "Down",
                 },
                 Keybind {
@@ -155,7 +155,7 @@ impl KeybindGroup {
                     action: "Copy share link (album/playlist)",
                 },
                 Keybind {
-                    key: "→",
+                    key: "→ or l",
                     action: "Focus queue",
                 },
             ],
@@ -167,11 +167,11 @@ impl KeybindGroup {
             title: "Queue",
             binds: &[
                 Keybind {
-                    key: "↑",
+                    key: "↑ or k",
                     action: "Up",
                 },
                 Keybind {
-                    key: "↓",
+                    key: "↓ or j",
                     action: "Down",
                 },
                 Keybind {
@@ -207,11 +207,11 @@ impl KeybindGroup {
             title: "Search",
             binds: &[
                 Keybind {
-                    key: "↑",
+                    key: "↑ or k",
                     action: "Up",
                 },
                 Keybind {
-                    key: "↓",
+                    key: "↓ or j",
                     action: "Down",
                 },
                 Keybind {

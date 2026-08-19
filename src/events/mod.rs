@@ -4,9 +4,9 @@
 //! Input handling and the main event loop.
 //!
 //! [`run_app`] drives the draw/poll cycle. Key dispatch in `handle_key` takes
-//! the text boxes first, then works through the remaining contexts that capture
-//! input — help, the queue, the pickers — before falling through to the global
-//! bindings and list navigation.
+//! the text boxes first, then rewrites `j`/`k` into arrow keys, then works
+//! through the remaining contexts that capture input — help, the queue, the
+//! pickers — before falling through to the global bindings and list navigation.
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
 use std::time::Duration;
@@ -93,6 +93,26 @@ pub fn run_app(
     Ok(())
 }
 
+/// `j`/`k` stand in for `Down`/`Up`. `h`/`l` already move between panes, so the
+/// same hand should move within one.
+///
+/// Rewriting the event once, here, reaches every list — the tabs, the detail
+/// views, the queue and the overlays — where adding a `Char('j')` arm beside
+/// each of the fifteen `KeyCode::Down` arms would leave the two spellings free
+/// to drift apart. Modified presses are left alone: the queue gives `Ctrl+Up`
+/// and `Ctrl+Down` a meaning of their own, and terminals send `Ctrl+J` as Enter.
+fn vim_arrows(mut key: KeyEvent) -> KeyEvent {
+    if !key.modifiers.is_empty() {
+        return key;
+    }
+    key.code = match key.code {
+        KeyCode::Char('j') => KeyCode::Down,
+        KeyCode::Char('k') => KeyCode::Up,
+        code => code,
+    };
+    key
+}
+
 fn handle_key(app: &mut App, key: KeyEvent) {
     // A text box outranks every other context, because to it a keystroke is a
     // character and nothing else may claim it first. The queue used to be
@@ -113,6 +133,9 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         handle_search_input(app, key);
         return;
     }
+
+    // Past the text boxes, letters are commands again.
+    let key = vim_arrows(key);
 
     if app.help_active {
         handle_help_input(app, key);
@@ -199,6 +222,17 @@ mod tests {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
     }
 
+    #[test]
+    fn j_and_k_move_the_selection() {
+        let (mut app, _channels) = app_on_artists_tab();
+
+        handle_key(&mut app, press('j'));
+        assert_eq!(app.artists.selected, 1);
+
+        handle_key(&mut app, press('k'));
+        assert_eq!(app.artists.selected, 0);
+    }
+
     /// The queue used to be checked before the palette and ate everything typed
     /// into one opened from it.
     #[test]
@@ -211,5 +245,18 @@ mod tests {
 
         assert!(app.command.active);
         assert_eq!(app.command.input, "c");
+    }
+
+    /// The half that is easy to break: inside a text box they are letters again.
+    #[test]
+    fn the_filter_box_reads_j_and_k_as_letters() {
+        let (mut app, _channels) = app_on_artists_tab();
+        app.filter_active = true;
+
+        handle_key(&mut app, press('j'));
+        handle_key(&mut app, press('k'));
+
+        assert_eq!(app.active_filter(), "jk");
+        assert_eq!(app.artists.selected, 0);
     }
 }
