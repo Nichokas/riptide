@@ -40,24 +40,37 @@ pub(super) fn parse_iso_duration(s: &str) -> u32 {
     seconds
 }
 
-pub(super) fn extract_artist_from_track(
+/// Every artist credited on a track, in the order the relationship lists them.
+///
+/// A track's `relationships.artists` routinely holds more than one — features
+/// and collaborations — so taking only the first drops a credit the UI shows.
+/// Ids the response did not include are skipped rather than rendered blank.
+pub(super) fn extract_artists_from_track(
     track_obj: &serde_json::Value,
     artist_map: &HashMap<String, serde_json::Value>,
-) -> String {
-    track_obj
+) -> Vec<ArtistRef> {
+    let Some(refs) = track_obj
         .get("relationships")
         .and_then(|v| v.get("artists"))
         .and_then(|v| v.get("data"))
         .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|v| v.get("id"))
-        .and_then(|v| v.as_str())
-        .and_then(|artist_id| artist_map.get(artist_id))
-        .and_then(|artist_obj| artist_obj.get("attributes"))
-        .and_then(|v| v.get("name"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown")
-        .to_string()
+    else {
+        return Vec::new();
+    };
+
+    refs.iter()
+        .filter_map(|artist_ref| artist_ref.get("id").and_then(|v| v.as_str()))
+        .filter_map(|id| artist_map.get(id))
+        .filter_map(|artist_obj| {
+            artist_obj
+                .get("attributes")
+                .and_then(|v| v.get("name"))
+                .and_then(|v| v.as_str())
+        })
+        .map(|name| ArtistRef {
+            name: name.to_string(),
+        })
+        .collect()
 }
 
 pub(super) fn extract_artist_from_album(

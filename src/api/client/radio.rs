@@ -72,7 +72,7 @@ fn parse_radio_response(api_resp: &serde_json::Value) -> Result<Vec<Track>> {
                                 .unwrap_or("PT0S"),
                         );
 
-                        let artist_name = extract_artist_from_track(track_obj, &artist_map);
+                        let artists = extract_artists_from_track(track_obj, &artist_map);
 
                         let album_title = attrs
                             .get("album")
@@ -98,8 +98,8 @@ fn parse_radio_response(api_resp: &serde_json::Value) -> Result<Vec<Track>> {
                             id,
                             title: title.to_string(),
                             duration,
-                            artist: Some(ArtistRef { name: artist_name }),
-                            artists: Vec::new(),
+                            artist: artists.first().cloned(),
+                            artists,
                             album: Album {
                                 id: album_id,
                                 title: album_title.to_string(),
