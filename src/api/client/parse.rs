@@ -7,6 +7,9 @@ use std::collections::HashMap;
 
 use crate::api::models::*;
 
+/// Artwork width every view renders at.
+const COVER_WIDTH: u64 = 320;
+
 pub(super) fn parse_iso_duration(s: &str) -> u32 {
     // Parse ISO 8601 duration format (e.g., "PT5M10S" = 5 min 10 sec = 310 sec)
     let s = s.trim_start_matches('P').trim_start_matches('T');
@@ -133,15 +136,58 @@ pub(super) fn extract_album_id_from_track(track_obj: &serde_json::Value) -> u64 
 }
 
 pub(super) fn build_artist_map(api_resp: &serde_json::Value) -> HashMap<String, serde_json::Value> {
-    let mut artist_map = HashMap::new();
+    build_included_map(api_resp, "artists")
+}
+
+/// Index one `type` out of a response's `included` array by id, for resolving
+/// the relationships that only carry ids.
+pub(super) fn build_included_map(
+    api_resp: &serde_json::Value,
+    ty: &str,
+) -> HashMap<String, serde_json::Value> {
+    let mut map = HashMap::new();
     if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
         for item in included {
-            if item.get("type").and_then(|v| v.as_str()) == Some("artists") {
+            if item.get("type").and_then(|v| v.as_str()) == Some(ty) {
                 if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-                    artist_map.insert(id.to_string(), item.clone());
+                    map.insert(id.to_string(), item.clone());
                 }
             }
         }
     }
-    artist_map
+    map
+}
+
+/// The cover URL an object's `coverArt` relationship points at, resolved
+/// against an artworks map from the same response.
+///
+/// Artworks list several sizes; 320px is what every view in the app renders.
+pub(super) fn resolve_cover_art(
+    obj: &serde_json::Value,
+    artwork_map: &HashMap<String, serde_json::Value>,
+) -> Option<String> {
+    let artwork_id = obj
+        .get("relationships")
+        .and_then(|v| v.get("coverArt"))
+        .and_then(|v| v.get("data"))
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())?;
+
+    artwork_map
+        .get(artwork_id)?
+        .get("attributes")
+        .and_then(|v| v.get("files"))
+        .and_then(|v| v.as_array())?
+        .iter()
+        .find(|file| {
+            file.get("meta")
+                .and_then(|m| m.get("width"))
+                .and_then(|w| w.as_u64())
+                == Some(COVER_WIDTH)
+        })
+        .and_then(|file| file.get("href"))
+        .and_then(|v| v.as_str())
+        .map(String::from)
 }
