@@ -55,7 +55,7 @@ cargo test --release --locked
 %{_bindir}/%{name}
 
 %changelog
-* Wed Aug 19 2026 Ryan Cohan <noreply@github.com> - 1.3.0-1
+* Wed Aug 19 2026 Fezzik the Giant <noreply@github.com> - 1.3.0-1
 - Added: j and k move down and up in every list — the tabs, the detail views, the queue, the help modal and the pickers.
 - Added: Volume, seek, shuffle and stop now work from desktop media widgets and playerctl, alongside the play/pause and skip controls that already did.
 - Added: The now-playing bar reports the bit depth and sample rate Tidal actually delivered, next to the quality badge.
@@ -72,21 +72,21 @@ cargo test --release --locked
 - Internal: The tab strip shared by the artist, search and Home views is one helper rather than two copies, and every list row goes through one of four row builders instead of being assembled by hand in twelve places
 - Internal: Truncation is measured in display columns rather than characters, so CJK titles and emoji no longer misalign the columns around them
 
-* Tue Aug 18 2026 Ryan Cohan <noreply@github.com> - 1.2.0-1
+* Tue Aug 18 2026 Fezzik the Giant <noreply@github.com> - 1.2.0-1
 - Added: Press u to undo the last thing you removed from your library — a track, artist, album or playlist.
 - Added: Dolby Atmos tracks and albums now show an ATMOS badge.
 - Changed: Removing something from your library moved from f to d, matching what d already does in the queue.
 - Internal: The identical quality-badge implementations on tracks and albums collapsed into one helper
 - Internal: Dropped the audioQuality field from tracks and albums along with the MQA and 320 badges that read it.
 
-* Tue Aug 18 2026 Ryan Cohan <noreply@github.com> - 1.1.1-1
+* Tue Aug 18 2026 Fezzik the Giant <noreply@github.com> - 1.1.1-1
 - Fixed: The Albums and Playlists tabs stopped at the first page, showing about 20 entries however large the library was.
 - Fixed: A track that appeared twice in a row in the queue restarted from the beginning over and over, and the repeated stream requests eventually drew a "429 Too Many Requests" from Tidal.
 - Fixed: Tracks that Tidal reports more than once in your favorites are now listed once.
 - Internal: Logs are readable again.
 - Internal: A failed AUR or COPR publish now fails the release run instead of being tolerated
 
-* Mon Aug 17 2026 Ryan Cohan <noreply@github.com> - 1.1.0-1
+* Mon Aug 17 2026 Fezzik the Giant <noreply@github.com> - 1.1.0-1
 - Added: Filter the Tracks, Artists, Albums and Playlists tabs by pressing / and typing.
 - Changed: The command palette moved from / to :, freeing / for filtering.
 - Fixed: The Now Playing bar — title, album art, details and lyrics — could describe a different track than the one actually playing.
