@@ -7,6 +7,21 @@ use super::*;
 
 // ── Now playing ───────────────────────────────────────────────────────────────
 
+/// A seek sent to mpv whose landing has not shown up in a position poll yet.
+/// Polls already in flight when the seek was issued still answer with the
+/// pre-seek position; a poll nearer `origin_secs` than `target_secs` is such a
+/// straggler and must be dropped, or the progress bar snaps back and a bogus
+/// `Seeked` fires. The budget bounds the damage if mpv never lands the seek.
+pub struct PendingSeek {
+    pub target_secs: f64,
+    pub origin_secs: f64,
+    pub polls_remaining: u8,
+}
+
+impl PendingSeek {
+    pub const POLL_BUDGET: u8 = 3;
+}
+
 pub struct NowPlaying {
     pub track: Option<Track>,
     /// True only after mpv fires TrackStarted; false on startup and after the queue empties.
@@ -18,6 +33,16 @@ pub struct NowPlaying {
     pub queue_index: usize,
     pub art_bytes: Option<Vec<u8>>,
     pub art_loading: bool,
+    /// Where the current track's cover lives, as handed to MPRIS clients. Kept
+    /// separately from `track.album.cover` because v2 track details deliver the
+    /// artwork as a URL while leaving `album.cover` empty.
+    pub art_url: Option<String>,
+    /// Bumped on every discontinuous position change so the MPRIS server knows
+    /// to emit `Seeked`; ordinary playback progress must not trigger it.
+    pub position_epoch: u64,
+    /// Seek issued to mpv whose landing has not been observed yet; see
+    /// [`PendingSeek`].
+    pub seek_pending: Option<PendingSeek>,
     pub lyrics_synced: Vec<(f64, String)>,
     pub lyrics_plain: Vec<String>,
     pub lyrics_loading: bool,
@@ -47,6 +72,15 @@ pub struct NowPlaying {
     /// while this holds: mpv *plays* a file appended to an exhausted playlist
     /// instead of queueing it, which would move the audio without the app knowing.
     pub mpv_exhausted: bool,
+    /// Track whose stream URL a Play is waiting on.
+    ///
+    /// Play has to be idempotent in the stopped state as well as the paused one:
+    /// without this a second Play inside the resolve round trip fires a second
+    /// request, and both responses reach the handler with `active` still false,
+    /// so each issues `loadfile replace` and restarts the song. That is the
+    /// duplicate-resolve loop behind issue #43, reached by pressing a media key
+    /// twice or by a desktop that repeats it.
+    pub play_pending: Option<u64>,
     /// Whether this track has been sent to Last.fm for scrobbling
     pub lastfm_sent: bool,
 }
@@ -63,6 +97,9 @@ impl Default for NowPlaying {
             queue_index: 0,
             art_bytes: None,
             art_loading: false,
+            art_url: None,
+            position_epoch: 0,
+            seek_pending: None,
             lyrics_synced: Vec::new(),
             lyrics_plain: Vec::new(),
             lyrics_loading: false,
@@ -77,6 +114,7 @@ impl Default for NowPlaying {
             original_queue: Vec::new(),
             next_prefetched: None,
             mpv_exhausted: true,
+            play_pending: None,
             lastfm_sent: false,
         }
     }

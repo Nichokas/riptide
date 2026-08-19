@@ -183,10 +183,13 @@ impl App {
                     if track.album.id == album_id {
                         if let Some(cover_url) = cover {
                             self.now_playing.art_loading = true;
+                            self.now_playing.art_url =
+                                Some(crate::api::models::cover_art_url(&cover_url));
                             let _ = self.api_tx.send(ApiRequest::FetchAlbumArt {
                                 album_id,
                                 cover_id: cover_url,
                             });
+                            self.push_mpris_state();
                         }
                     }
                 }
@@ -512,6 +515,7 @@ impl App {
                 if self.now_playing.queue.get(idx).map(|t| t.id) == Some(track_id)
                     && !already_playing
                 {
+                    self.now_playing.play_pending = None;
                     // Always update the track when we get a successful stream URL for the current track
                     let track_changed =
                         self.now_playing.track.as_ref().map(|t| t.id) != Some(track_id);
@@ -583,6 +587,7 @@ impl App {
                         {
                             self.now_playing.art_loading = true;
                             self.now_playing.art_bytes = None;
+                            self.now_playing.art_url = Some(url.clone());
                             let _ = self.api_tx.send(ApiRequest::FetchTrackArt {
                                 track_id,
                                 cover_url: url,
@@ -594,6 +599,10 @@ impl App {
                             );
                         }
                     }
+                    // The replacement track may correct title, album, or art;
+                    // push now instead of letting the next 500 ms position tick
+                    // deliver it.
+                    self.push_mpris_state();
                 }
             }
 
@@ -663,6 +672,9 @@ impl App {
 
             ApiResponse::Error(msg) => {
                 let display_msg = if msg.contains("no stream URL available for track") {
+                    // The URL a Play was waiting on is never coming; leaving it
+                    // pending would make Play a no-op from then on.
+                    self.now_playing.play_pending = None;
                     // Try to enhance the error message with track name
                     if let Some(track_id_str) = msg.split("track ").last() {
                         if let Ok(track_id) = track_id_str.parse::<u64>() {
@@ -709,6 +721,8 @@ impl App {
                 self.now_playing.duration = 0.0;
                 self.now_playing.active = true;
                 self.now_playing.paused = false;
+                self.now_playing.seek_pending = None;
+                self.now_playing.play_pending = None;
                 self.now_playing.sample_rate = None;
                 self.now_playing.codec = None;
                 self.now_playing.lastfm_sent = false;
@@ -772,17 +786,36 @@ impl App {
                     self.now_playing.active = false;
                     self.now_playing.next_prefetched = None;
                     self.now_playing.mpv_exhausted = true;
-                    self.push_mpris_state();
                 }
                 self.now_playing.position = 0.0;
+                self.push_mpris_state();
             }
             PlayerEvent::Position(p) => {
                 if !self.now_playing.active {
                     return;
                 }
-                // Only accept position updates that move forward (with 10ms tolerance for jitter).
-                // This prevents the audio widget from showing position going backward.
-                if p >= self.now_playing.position - 0.01 {
+                if let Some(pending) = &mut self.now_playing.seek_pending {
+                    let stale = (p - pending.origin_secs).abs() < (p - pending.target_secs).abs();
+                    if stale && pending.polls_remaining > 0 {
+                        pending.polls_remaining -= 1;
+                        return;
+                    }
+                    self.now_playing.seek_pending = None;
+                    if !stale {
+                        self.now_playing.position = p;
+                        self.push_mpris_state();
+                        return;
+                    }
+                }
+                let delta = p - self.now_playing.position;
+                // Sub-poll backward jitter is dropped so the progress bar never
+                // wobbles, but a jump of more than a second either way is a real
+                // seek (e.g. through mpv's IPC socket) and must be taken — and
+                // signalled, which is what the epoch bump does.
+                if delta >= -0.01 || delta < -1.0 {
+                    if delta.abs() > 1.0 {
+                        self.now_playing.position_epoch += 1;
+                    }
                     self.now_playing.position = p;
                     self.push_mpris_state();
                 }
@@ -843,7 +876,12 @@ impl App {
             PlayerEvent::Error(e) => {
                 self.set_status(format!("Player: {e}"), StatusLevel::Error);
             }
-            PlayerEvent::CurrVolume(v) => self.now_playing.volume = v,
+            PlayerEvent::CurrVolume(v) => {
+                if self.now_playing.volume != v {
+                    self.now_playing.volume = v;
+                    self.push_mpris_state();
+                }
+            }
         }
     }
 }
