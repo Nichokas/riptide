@@ -183,14 +183,6 @@ impl Playlist {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct FavoritePlaylistEntry {
-    pub created: Option<String>,
-    // Tidal uses "playlist" here; every other favorites endpoint uses "item".
-    #[serde(alias = "item")]
-    pub playlist: Playlist,
-}
-
 // ── Search ────────────────────────────────────────────────────────────────────
 
 // ── Lyrics ────────────────────────────────────────────────────────────────────

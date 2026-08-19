@@ -287,78 +287,6 @@ pub(super) fn parse_playlist_relationship_items(
     Ok((tracks, total, next_url))
 }
 
-pub(super) fn parse_v2_user_playlists(
-    api_resp: &serde_json::Value,
-) -> Result<(Vec<Playlist>, u32)> {
-    let mut playlist_ids = Vec::new();
-    let mut added_at_by_id: HashMap<String, String> = HashMap::new();
-    if let Some(items_data) = api_resp
-        .get("data")
-        .and_then(|v| v.get("relationships"))
-        .and_then(|v| v.get("items"))
-        .and_then(|v| v.get("data"))
-        .and_then(|v| v.as_array())
-    {
-        for item_ref in items_data {
-            if let Some(id) = item_ref.get("id").and_then(|v| v.as_str()) {
-                playlist_ids.push(id.to_string());
-                // addedAt lives on the relationship entry, not on the playlist
-                // object in `included`, so capture it here against the id.
-                if let Some(added_at) = item_ref
-                    .get("meta")
-                    .and_then(|m| m.get("addedAt"))
-                    .and_then(|v| v.as_str())
-                {
-                    added_at_by_id.insert(id.to_string(), added_at.to_string());
-                }
-            }
-        }
-    }
-
-    let mut playlist_map = HashMap::new();
-    if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
-        for item in included {
-            if item.get("type").and_then(|v| v.as_str()) == Some("playlists") {
-                if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-                    playlist_map.insert(id.to_string(), item.clone());
-                }
-            }
-        }
-    }
-
-    let mut playlists = Vec::new();
-    for playlist_id in playlist_ids {
-        if let Some(playlist_obj) = playlist_map.get(&playlist_id) {
-            if let Some(attrs) = playlist_obj.get("attributes").and_then(|v| v.as_object()) {
-                if let Some(name) = attrs.get("name").and_then(|v| v.as_str()) {
-                    let number_of_items = attrs
-                        .get("numberOfItems")
-                        .and_then(|v| v.as_u64())
-                        .map(|n| n as u32);
-
-                    playlists.push(Playlist {
-                        uuid: playlist_id.clone(),
-                        title: name.to_string(),
-                        number_of_tracks: number_of_items,
-                        description: None,
-                        cover: None,
-                        added_at: added_at_by_id.get(&playlist_id).cloned(),
-                    });
-                }
-            }
-        }
-    }
-
-    let total = api_resp
-        .get("data")
-        .and_then(|v| v.get("attributes"))
-        .and_then(|v| v.get("numberOfItems"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(playlists.len() as u64) as u32;
-
-    Ok((playlists, total))
-}
-
 impl ApiClient {
     /// Drains every page of the collection. Callers get the whole thing, so a
     /// forgotten cursor cannot silently truncate the library — which is exactly
@@ -420,54 +348,6 @@ impl ApiClient {
 
         let next_cursor = page.links.and_then(|l| l.meta).and_then(|m| m.next_cursor);
         Ok((playlists, next_cursor))
-    }
-
-    pub async fn get_favorite_playlists(&self) -> Result<Page<FavoritePlaylistEntry>> {
-        let token = self.token.read().await.clone();
-        let url =
-            format!("{OPENAPI_BASE}/userCollectionPlaylists/me?locale=en-US&include=items.items");
-
-        let resp = self
-            .http
-            .get(&url)
-            .bearer_auth(&token)
-            .header("Accept", "application/vnd.api+json")
-            .send()
-            .await?;
-
-        let status = resp.status();
-
-        if !status.is_success() {
-            let body = resp.text().await?;
-            tracing::error!(
-                "API error {} on /userCollectionPlaylists/me: {}",
-                status,
-                body
-            );
-            anyhow::bail!("HTTP {}", status);
-        }
-
-        let body = resp.text().await?;
-        let api_resp: serde_json::Value = serde_json::from_str(&body)?;
-
-        let (playlists, total) = parse_v2_user_playlists(&api_resp)?;
-        tracing::debug!(
-            "favorite playlists endpoint returned {} entries (total {total})",
-            playlists.len()
-        );
-
-        let entries = playlists
-            .into_iter()
-            .map(|p| FavoritePlaylistEntry {
-                created: p.added_at.clone(),
-                playlist: p,
-            })
-            .collect();
-
-        Ok(Page {
-            items: entries,
-            total,
-        })
     }
 
     pub async fn save_playlist(&self, uuid: &str) -> Result<()> {
