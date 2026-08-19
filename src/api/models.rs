@@ -181,6 +181,15 @@ impl Playlist {
     pub fn share_url(&self) -> String {
         format!("https://tidal.com/browse/playlist/{}", self.uuid)
     }
+
+    /// `"23 tracks"`, or `None` when Tidal did not say.
+    ///
+    /// `MIX` playlists carry no `numberOfItems` at all — verified live, it is
+    /// absent from the attributes rather than zero — so rendering the `Option`
+    /// as 0 claimed those playlists were empty.
+    pub fn track_count_label(&self) -> Option<String> {
+        self.number_of_tracks.map(|n| format!("{n} tracks"))
+    }
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────

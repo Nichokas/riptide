@@ -98,11 +98,15 @@ pub(super) fn render_queue(f: &mut Frame, app: &App, area: Rect) {
         };
 
         f.render_widget(
-            Paragraph::new(title_line).style(line_style),
+            Paragraph::new(ellipsize(&title_line, inner.width)).style(line_style),
             Rect::new(inner.x, y, inner.width, 1),
         );
         f.render_widget(
-            Paragraph::new(format!("  {}", track.all_artist_names())).style(line_style),
+            Paragraph::new(ellipsize(
+                &format!("  {}", track.all_artist_names()),
+                inner.width,
+            ))
+            .style(line_style),
             Rect::new(inner.x, y + 1, inner.width, 1),
         );
         y += item_h as u16;

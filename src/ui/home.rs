@@ -7,7 +7,6 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
@@ -146,11 +145,14 @@ pub(super) fn render_home_section(
                 Style::default().fg(Color::White)
             };
 
-            let prefix = if is_selected { "▶ " } else { "  " };
-            ListItem::new(Line::from(Span::styled(
-                format!("{}{}", prefix, item.title),
+            ListItem::new(simple_row(
+                app,
+                &item.title,
+                area.width,
+                is_selected,
                 title_style,
-            )))
+                "",
+            ))
         })
         .collect();
 

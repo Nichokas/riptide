@@ -7,7 +7,6 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
@@ -218,42 +217,23 @@ pub(super) fn render_artist_tracks_full(
             } else {
                 Style::default().fg(Color::White)
             };
-            let prefix = if selected { "▶ " } else { "  " };
             let playing = app
                 .now_playing
                 .track
                 .as_ref()
                 .map(|t| t.id == track.id)
                 .unwrap_or(false);
-            let indicator = if playing { "♪ " } else { "" };
             // `i` stays 0-based for selection; only the displayed ordinal is 1-based.
-            let n = i + 1;
-
-            let title_span = Span::styled(
-                format!(
-                    "{prefix}{indicator}{n:>2}. {} ({})",
-                    track.title,
-                    track.duration_display()
-                ),
+            let ordinal = format!("{:>3}. ", i + 1);
+            ListItem::new(track_row(
+                app,
+                track,
+                area.width,
+                Some(ordinal),
+                selected,
+                playing,
                 style,
-            );
-
-            let badge = track
-                .quality_badge()
-                .map(|b| format!(" [{b}]"))
-                .unwrap_or_default();
-            let badge_span = Span::styled(
-                badge,
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-            );
-
-            let heart = if app.favorite_track_ids.contains(&track.id) {
-                Span::raw(" ❤")
-            } else {
-                Span::raw("")
-            };
-
-            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
+            ))
         })
         .collect();
 
@@ -300,35 +280,15 @@ pub(super) fn render_artist_albums(
             } else {
                 Style::default().fg(Color::White)
             };
-            let prefix = if selected { "▶ " } else { "  " };
-            let year = album
-                .release_date
-                .as_deref()
-                .and_then(|d| d.get(..4))
-                .unwrap_or("----");
-            let n = album.number_of_tracks.unwrap_or(0);
-
-            let title_span = Span::styled(
-                format!("{}{} ({}, {} tracks)", prefix, album.title, year, n),
+            ListItem::new(album_row(
+                app,
+                album,
+                area.width,
+                selected,
+                false,
                 style,
-            );
-
-            let badge = album
-                .quality_badge()
-                .map(|b| format!(" [{b}]"))
-                .unwrap_or_default();
-            let badge_span = Span::styled(
-                badge,
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-            );
-
-            let heart = if app.favorite_album_ids.contains(&album.id) {
-                Span::raw(" ❤")
-            } else {
-                Span::raw("")
-            };
-
-            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
+                Style::default().fg(DIM),
+            ))
         })
         .collect();
 
@@ -375,35 +335,15 @@ pub(super) fn render_artist_eps(
             } else {
                 Style::default().fg(Color::White)
             };
-            let prefix = if selected { "▶ " } else { "  " };
-            let year = album
-                .release_date
-                .as_deref()
-                .and_then(|d| d.get(..4))
-                .unwrap_or("----");
-            let n = album.number_of_tracks.unwrap_or(0);
-
-            let title_span = Span::styled(
-                format!("{}{} ({}, {} tracks)", prefix, album.title, year, n),
+            ListItem::new(album_row(
+                app,
+                album,
+                area.width,
+                selected,
+                false,
                 style,
-            );
-
-            let badge = album
-                .quality_badge()
-                .map(|b| format!(" [{b}]"))
-                .unwrap_or_default();
-            let badge_span = Span::styled(
-                badge,
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-            );
-
-            let heart = if app.favorite_album_ids.contains(&album.id) {
-                Span::raw(" ❤")
-            } else {
-                Span::raw("")
-            };
-
-            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
+                Style::default().fg(DIM),
+            ))
         })
         .collect();
 
@@ -450,35 +390,15 @@ pub(super) fn render_artist_singles(
             } else {
                 Style::default().fg(Color::White)
             };
-            let prefix = if selected { "▶ " } else { "  " };
-            let year = album
-                .release_date
-                .as_deref()
-                .and_then(|d| d.get(..4))
-                .unwrap_or("----");
-            let n = album.number_of_tracks.unwrap_or(0);
-
-            let title_span = Span::styled(
-                format!("{}{} ({}, {} tracks)", prefix, album.title, year, n),
+            ListItem::new(album_row(
+                app,
+                album,
+                area.width,
+                selected,
+                false,
                 style,
-            );
-
-            let badge = album
-                .quality_badge()
-                .map(|b| format!(" [{b}]"))
-                .unwrap_or_default();
-            let badge_span = Span::styled(
-                badge,
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-            );
-
-            let heart = if app.favorite_album_ids.contains(&album.id) {
-                Span::raw(" ❤")
-            } else {
-                Span::raw("")
-            };
-
-            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
+                Style::default().fg(DIM),
+            ))
         })
         .collect();
 

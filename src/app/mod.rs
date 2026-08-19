@@ -49,6 +49,10 @@ pub struct App {
     pub favorite_track_ids: HashSet<u64>,
     pub favorite_album_ids: HashSet<u64>,
     pub favorite_artist_ids: HashSet<u64>,
+    /// Playlists are keyed by uuid, not the numeric id the other three use.
+    /// Mirrors `playlists.items` exactly — the two are updated together, so a
+    /// removal still in flight never reads as already gone.
+    pub favorite_playlist_ids: HashSet<String>,
     pub search: SearchState,
     pub command: CommandState,
     /// Whether the filter box is open and capturing input. The query itself
@@ -74,6 +78,15 @@ pub struct App {
     pub help_scroll: u16,
 
     pub tick: u64,
+    /// When the marquee's cycle started. Reset on every keypress, so a row the
+    /// cursor just landed on scrolls from its start rather than picking up
+    /// wherever the clock happened to be.
+    ///
+    /// Wall-clock rather than a frame count: the draw loop's rate depends on the
+    /// terminal and on what is being drawn — album art roughly halves it — so
+    /// timing the cycle in frames made the same constants mean different things
+    /// on different setups.
+    pub marquee_epoch: std::time::Instant,
     /// (message, level, Instant when set) — cleared automatically after ~5 s
     pub status: Option<(String, StatusLevel, std::time::Instant)>,
 
@@ -107,6 +120,7 @@ impl App {
             favorite_track_ids: HashSet::new(),
             favorite_album_ids: HashSet::new(),
             favorite_artist_ids: HashSet::new(),
+            favorite_playlist_ids: HashSet::new(),
             search: SearchState::default(),
             command: CommandState::default(),
             filter_active: false,
@@ -131,6 +145,7 @@ impl App {
             help_active: false,
             help_scroll: 0,
             tick: 0,
+            marquee_epoch: std::time::Instant::now(),
             status: None,
             api_tx,
             player_tx,
@@ -184,6 +199,11 @@ impl App {
             .next_page(self.queue_cursor, self.now_playing.queue.len());
     }
 
+    /// Time since the last keypress, driving the marquee on the selected row.
+    pub fn marquee_phase(&self) -> std::time::Duration {
+        self.marquee_epoch.elapsed()
+    }
+
     pub fn tick(&mut self) {
         self.tick = self.tick.wrapping_add(1);
         if let Some((msg, _, set_at)) = &self.status {
@@ -221,6 +241,15 @@ impl App {
 
     pub(crate) fn rebuild_favorite_artist_ids(&mut self) {
         self.favorite_artist_ids = self.artists.items.iter().map(|a| a.id).collect();
+    }
+
+    pub(crate) fn rebuild_favorite_playlist_ids(&mut self) {
+        self.favorite_playlist_ids = self
+            .playlists
+            .items
+            .iter()
+            .map(|p| p.uuid.clone())
+            .collect();
     }
 
     /// Copy a share URL to the system clipboard and confirm via the status toast.

@@ -114,6 +114,10 @@ fn vim_arrows(mut key: KeyEvent) -> KeyEvent {
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) {
+    // Any keystroke means the user is working the list, so restart the marquee
+    // and let them read the row they just landed on from its beginning.
+    app.marquee_epoch = std::time::Instant::now();
+
     // A text box outranks every other context, because to it a keystroke is a
     // character and nothing else may claim it first. The queue used to be
     // checked ahead of the command palette and swallowed everything typed into

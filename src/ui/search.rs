@@ -176,35 +176,9 @@ pub(super) fn render_search_pane_tracks(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default().fg(Color::White)
             };
-            let prefix = if selected { "▶ " } else { "  " };
-            let playing = if is_playing { "♪ " } else { "" };
-
-            let title_span = Span::styled(
-                format!(
-                    "{prefix}{playing}{} — {} ({})",
-                    t.title,
-                    t.all_artist_names(),
-                    t.duration_display()
-                ),
-                style,
-            );
-
-            let badge = t
-                .quality_badge()
-                .map(|b| format!(" [{b}]"))
-                .unwrap_or_default();
-            let badge_span = Span::styled(
-                badge,
-                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-            );
-
-            let heart = if app.favorite_track_ids.contains(&t.id) {
-                Span::raw(" ❤")
-            } else {
-                Span::raw("")
-            };
-
-            ListItem::new(Line::from(vec![title_span, badge_span, heart]))
+            ListItem::new(track_row(
+                app, t, area.width, None, selected, is_playing, style,
+            ))
         })
         .collect();
 
@@ -241,14 +215,12 @@ pub(super) fn render_search_pane_artists(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default().fg(Color::White)
             };
-            let prefix = if selected { "▶ " } else { "  " };
-            let title_span = Span::styled(format!("{prefix}{}", a.name), style);
             let heart = if app.favorite_artist_ids.contains(&a.id) {
-                Span::raw(" ❤")
+                " ❤"
             } else {
-                Span::raw("")
+                ""
             };
-            ListItem::new(Line::from(vec![title_span, heart]))
+            ListItem::new(simple_row(app, &a.name, area.width, selected, style, heart))
         })
         .collect();
 
@@ -285,13 +257,14 @@ pub(super) fn render_search_pane_playlists(f: &mut Frame, app: &App, area: Rect)
             } else {
                 Style::default().fg(Color::White)
             };
-            let prefix = if selected { "▶ " } else { "  " };
-            ListItem::new(format!(
-                "{prefix}{} ({} tracks)",
-                pl.title,
-                pl.number_of_tracks.unwrap_or(0)
+            ListItem::new(playlist_row(
+                app,
+                pl,
+                area.width,
+                selected,
+                style,
+                Style::default().fg(DIM),
             ))
-            .style(style)
         })
         .collect();
 

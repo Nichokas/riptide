@@ -48,11 +48,13 @@ impl App {
 
             ApiResponse::PlaylistRemoved { uuid } => {
                 self.playlists.remove_where(|p| p.uuid != uuid);
+                self.favorite_playlist_ids.remove(&uuid);
             }
 
             ApiResponse::Playlists(items, total) => {
                 self.playlists.append(items, total);
                 self.sort_playlists();
+                self.rebuild_favorite_playlist_ids();
             }
 
             ApiResponse::Favorites(items, _total) => {
