@@ -63,18 +63,31 @@ fn section_label(app: &App, section: HomeSectionFocus) -> (String, bool) {
 }
 
 fn render_home_art(f: &mut Frame, app: &App, area: Rect) {
-    let art_h = (area.width.saturating_sub(2) / 2).max(3) + 2;
-    let rows = Layout::vertical([
-        Constraint::Length(art_h.min(area.height)),
-        Constraint::Min(0),
-    ])
-    .split(area);
+    // Covers are square, and `Resize::Fit` keeps them that way, so the frame has
+    // to be square in *pixels* — which takes the terminal's real cell size, not
+    // an assumed one. Whole cells rarely divide evenly, so the art is fitted to
+    // the smaller axis and the box drawn around what it actually occupies.
+    let (cell_w, cell_h) = cell_size();
+    let title_rows = 2;
+    let mut cols = area.width.saturating_sub(2);
+    let mut rows = (cols as u32 * cell_w as u32 / cell_h as u32) as u16;
+    let max_rows = area.height.saturating_sub(2 + title_rows);
+    if rows > max_rows {
+        rows = max_rows;
+    }
+    // Back-solve the width from the rows that survived rounding, so the frame is
+    // the size the fitted image ends up rather than the size it asked for.
+    cols = cols.min((rows as u32 * cell_h as u32 / cell_w as u32) as u16);
+    if cols == 0 || rows == 0 {
+        return;
+    }
 
+    let frame = Rect::new(area.x, area.y, cols + 2, rows + 2);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(DIM));
-    let inner = block.inner(rows[0]);
-    f.render_widget(block, rows[0]);
+    let inner = block.inner(frame);
+    f.render_widget(block, frame);
 
     if let Some(bytes) = &app.home_art.bytes {
         render_image(f, bytes, inner);
@@ -88,13 +101,21 @@ fn render_home_art(f: &mut Frame, app: &App, area: Rect) {
     }
 
     if let Some(mix) = app.selected_home_mix() {
-        f.render_widget(
-            Paragraph::new(mix.title.as_str())
-                .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
-                .wrap(Wrap { trim: true })
-                .alignment(Alignment::Center),
-            rows[1],
+        let below = Rect::new(
+            area.x,
+            frame.bottom(),
+            frame.width,
+            area.height.saturating_sub(frame.height),
         );
+        if below.height > 0 {
+            f.render_widget(
+                Paragraph::new(mix.title.as_str())
+                    .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+                    .wrap(Wrap { trim: true })
+                    .alignment(Alignment::Center),
+                below,
+            );
+        }
     }
 }
 
@@ -202,6 +223,35 @@ mod tests {
         (0..w)
             .map(|x| buf.cell((x, 0)).unwrap().symbol().to_string())
             .collect()
+    }
+
+    /// The cover is square and `Resize::Fit` keeps it that way, so the frame has
+    /// to be square in pixels or the border floats clear of the picture.
+    #[test]
+    fn the_art_frame_is_square_in_pixels() {
+        let app = home_app();
+        let (cell_w, cell_h) = cell_size();
+
+        for (w, h) in [(96u16, 24u16), (140, 30), (96, 12)] {
+            let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+            term.draw(|f| render_home(f, &app, Rect::new(0, 0, w, h)))
+                .unwrap();
+            let buf = term.backend().buffer().clone();
+
+            let row = |y: u16| -> String {
+                (0..w)
+                    .map(|x| buf.cell((x, y)).unwrap().symbol().to_string())
+                    .collect()
+            };
+            let cols = row(0).chars().position(|c| c == '┐').unwrap() + 1;
+            let rows = (0..h).find(|&y| row(y).starts_with('└')).unwrap() + 1;
+
+            let (px_w, px_h) = (
+                (cols as u16 - 2) * cell_w,
+                (rows.saturating_sub(2)) * cell_h,
+            );
+            assert_eq!(px_w, px_h, "{w}x{h}: frame is {px_w}x{px_h} px");
+        }
     }
 
     #[test]

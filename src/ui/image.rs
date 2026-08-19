@@ -50,6 +50,16 @@ pub(super) fn get_picker() -> &'static Picker {
 /// with a wholesale clear is enough to bound growth as the user browses.
 pub(super) const PROTOCOL_CACHE_CAP: usize = 8;
 
+/// The terminal's cell size in pixels, queried once at startup.
+///
+/// Needed to frame an image snugly: `Resize::Fit` preserves the source's aspect
+/// ratio, so a box laid out on a guessed cell ratio leaves the border floating
+/// clear of the picture on any font that is not exactly twice as tall as wide.
+pub(super) fn cell_size() -> (u16, u16) {
+    let size = get_picker().font_size();
+    (size.width.max(1), size.height.max(1))
+}
+
 pub(super) fn render_image(f: &mut Frame, bytes: &[u8], area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
