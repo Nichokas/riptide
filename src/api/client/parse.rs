@@ -7,8 +7,13 @@ use std::collections::HashMap;
 
 use crate::api::models::*;
 
-/// Artwork width every view renders at.
-const COVER_WIDTH: u64 = 320;
+/// Largest artwork width worth downloading.
+///
+/// Tidal serves the same file for 160, 320 and 480 — byte-identical, verified
+/// live — so taking the largest of them costs nothing and gives the Home tab's
+/// cover room to grow. 1080 is a genuinely bigger download (178 KB against 44),
+/// which is why this caps rather than simply taking the biggest on offer.
+const COVER_MAX_WIDTH: u64 = 480;
 
 pub(super) fn parse_iso_duration(s: &str) -> u32 {
     // Parse ISO 8601 duration format (e.g., "PT5M10S" = 5 min 10 sec = 310 sec)
@@ -181,13 +186,33 @@ pub(super) fn resolve_cover_art(
         .and_then(|v| v.get("files"))
         .and_then(|v| v.as_array())?
         .iter()
-        .find(|file| {
-            file.get("meta")
+        .filter_map(|file| {
+            let width = file
+                .get("meta")
                 .and_then(|m| m.get("width"))
-                .and_then(|w| w.as_u64())
-                == Some(COVER_WIDTH)
+                .and_then(|w| w.as_u64())?;
+            Some((width, file))
         })
-        .and_then(|file| file.get("href"))
+        // Not every artwork offers every size, so pick by rank rather than by an
+        // exact match: the largest within the cap, or the smallest if all exceed it.
+        .fold(
+            None,
+            |best: Option<(u64, &serde_json::Value)>, (width, file)| match best {
+                Some((best_width, _))
+                    if (best_width <= COVER_MAX_WIDTH) == (width <= COVER_MAX_WIDTH) =>
+                {
+                    let better = if width <= COVER_MAX_WIDTH {
+                        width > best_width
+                    } else {
+                        width < best_width
+                    };
+                    if better { Some((width, file)) } else { best }
+                }
+                Some(best) if best.0 <= COVER_MAX_WIDTH => Some(best),
+                _ => Some((width, file)),
+            },
+        )
+        .and_then(|(_, file)| file.get("href"))
         .and_then(|v| v.as_str())
         .map(String::from)
 }

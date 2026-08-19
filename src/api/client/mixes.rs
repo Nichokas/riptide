@@ -191,6 +191,8 @@ mod tests {
       ]
     }"#;
 
+    /// The fixture deliberately omits the 480 px variant the cap names, so this
+    /// also covers the pick falling back to the largest size actually on offer.
     #[test]
     fn a_mix_takes_its_cover_from_the_artwork_relationship() {
         let resp: serde_json::Value = serde_json::from_str(RESPONSE).unwrap();
