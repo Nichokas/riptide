@@ -4,6 +4,7 @@
 use crate::api::models::*;
 use crate::playlist::PlaylistDetail;
 use std::cell::Cell;
+use std::collections::HashMap;
 
 mod detail;
 mod keybinds;

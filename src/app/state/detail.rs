@@ -84,6 +84,53 @@ impl<T> HomeSection<T> {
     }
 }
 
+/// Cover art for the mix selected on the Home tab.
+///
+/// Covers are kept once fetched: the selection changes on every keypress, and
+/// without the cache walking back up a list of mixes refetches every one.
+#[derive(Default)]
+pub struct HomeArt {
+    /// Mix the current `bytes` belong to, or that is being fetched for.
+    pub uuid: Option<String>,
+    pub bytes: Option<Vec<u8>>,
+    pub loading: bool,
+    fetched: HashMap<String, Vec<u8>>,
+}
+
+impl HomeArt {
+    /// Point at `uuid`, serving the cover from cache when it is already known.
+    /// Returns whether the caller has to fetch it.
+    pub fn select(&mut self, uuid: &str) -> bool {
+        self.uuid = Some(uuid.to_string());
+        match self.fetched.get(uuid) {
+            Some(bytes) => {
+                self.bytes = Some(bytes.clone());
+                self.loading = false;
+                false
+            }
+            None => {
+                self.bytes = None;
+                self.loading = true;
+                true
+            }
+        }
+    }
+
+    pub fn store(&mut self, uuid: String, bytes: Vec<u8>) {
+        if self.uuid.as_deref() == Some(uuid.as_str()) {
+            self.bytes = Some(bytes.clone());
+            self.loading = false;
+        }
+        self.fetched.insert(uuid, bytes);
+    }
+
+    pub fn clear(&mut self) {
+        self.uuid = None;
+        self.bytes = None;
+        self.loading = false;
+    }
+}
+
 // ── Album detail / art payload ────────────────────────────────────────────────
 
 pub struct AlbumDetail {

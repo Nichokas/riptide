@@ -147,62 +147,35 @@ pub(super) fn render_carousel_tabs(
     detail: &crate::app::ArtistDetail,
     area: Rect,
 ) {
-    if area.height < 2 {
-        return;
-    }
-
-    let tabs = vec![
+    let labels = [
         (
-            format!(" Top Tracks ({})", detail.tracks.items.len()),
-            ArtistDetailFocus::Tracks,
+            format!("Top Tracks ({})", detail.tracks.items.len()),
+            detail.focus == ArtistDetailFocus::Tracks,
         ),
         (
             format!("Albums ({})", detail.albums.items.len()),
-            ArtistDetailFocus::Albums,
+            detail.focus == ArtistDetailFocus::Albums,
         ),
         (
             format!("EPs ({})", detail.eps.items.len()),
-            ArtistDetailFocus::EPs,
+            detail.focus == ArtistDetailFocus::EPs,
         ),
         (
             format!("Singles ({})", detail.singles.items.len()),
-            ArtistDetailFocus::Singles,
+            detail.focus == ArtistDetailFocus::Singles,
         ),
     ];
 
-    // Spans + Line seperators. can be changed or removed completely.
-    let mut line_spans = Vec::new();
-    for (i, (name, focus)) in tabs.iter().enumerate() {
-        if i > 0 {
-            line_spans.push(Span::styled(" - ", Style::default().fg(DIM)));
-        }
+    let Some(inner) = render_carousel(f, area, &labels) else {
+        return;
+    };
 
-        let selected = detail.focus == *focus;
-        let style = if selected {
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(DIM)
-        };
-
-        line_spans.push(Span::styled(name.clone(), style));
-    }
-    //block styling (made it dim cuz that fit better with the surrounding UI)
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(DIM))
-        .title(Line::from(line_spans));
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    if inner.height > 0 {
-        match detail.focus {
-            ArtistDetailFocus::Tracks => render_artist_tracks_full(f, app, detail, inner),
-            ArtistDetailFocus::Albums => render_artist_albums(f, app, detail, inner),
-            ArtistDetailFocus::EPs => render_artist_eps(f, app, detail, inner),
-            ArtistDetailFocus::Singles => render_artist_singles(f, app, detail, inner),
-            ArtistDetailFocus::Bio => {}
-        }
+    match detail.focus {
+        ArtistDetailFocus::Tracks => render_artist_tracks_full(f, app, detail, inner),
+        ArtistDetailFocus::Albums => render_artist_albums(f, app, detail, inner),
+        ArtistDetailFocus::EPs => render_artist_eps(f, app, detail, inner),
+        ArtistDetailFocus::Singles => render_artist_singles(f, app, detail, inner),
+        ArtistDetailFocus::Bio => {}
     }
 }
 

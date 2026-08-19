@@ -7,6 +7,8 @@ mod navigation;
 mod playback;
 mod responses;
 mod state;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use crate::playlist::{PlaylistDetail, PlaylistDetailFocus};
 pub use state::*;
@@ -38,6 +40,7 @@ pub struct App {
     pub home_daily_mixes: HomeSection<Playlist>,
     pub home_discovery_mixes: HomeSection<Playlist>,
     pub home_section_focus: HomeSectionFocus,
+    pub home_art: HomeArt,
 
     pub artists: StatefulList<Artist>,
     pub fav_albums: StatefulList<Album>,
@@ -96,6 +99,7 @@ impl App {
             home_daily_mixes: HomeSection::default(),
             home_discovery_mixes: HomeSection::default(),
             home_section_focus: HomeSectionFocus::default(),
+            home_art: HomeArt::default(),
             artists: StatefulList::default(),
             fav_albums: StatefulList::default(),
             playlists: StatefulList::default(),

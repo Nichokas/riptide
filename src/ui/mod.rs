@@ -19,6 +19,7 @@ use crate::search::SearchPane;
 
 mod album_detail;
 mod artist_detail;
+mod carousel;
 mod footer;
 mod home;
 mod image;
@@ -33,6 +34,7 @@ mod theme;
 
 use album_detail::*;
 use artist_detail::*;
+use carousel::*;
 use footer::*;
 use home::*;
 use image::*;

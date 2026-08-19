@@ -262,6 +262,12 @@ message named the anomaly.
 - Chain the next page from the response handler, not from a scroll event
 
 ### UI Patterns
+- The artist, search and Home views share one tab strip: `render_carousel` in
+  `src/ui/carousel.rs` draws the bordered block whose title is the strip and
+  returns the area for the active tab's content. It owns the strip's padding —
+  labels passed in carry no leading or trailing spaces. `carousel_width` says
+  what the strip needs, which is how Home decides whether it can afford its art
+  column.
 - Use `ListViewport` for scroll management (interior mutability with Cell)
 - Render functions receive `&Frame` for double-buffering
 - Use ratatui's Layout/Constraint system for responsive design

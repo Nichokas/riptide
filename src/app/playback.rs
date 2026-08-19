@@ -369,35 +369,11 @@ impl App {
 mod tests {
     use super::App;
     use crate::api::ApiRequest;
-    use crate::api::models::{Album, ArtistRef, Track};
+    use crate::api::models::Track;
+    use crate::app::test_support::track;
     use crate::mpris::MprisState;
     use crate::player::{PlayerCmd, PlayerEvent};
     use tokio::sync::mpsc;
-
-    fn track(id: u64) -> Track {
-        Track {
-            id,
-            title: format!("Track {id}"),
-            duration: 180,
-            artist: Some(ArtistRef {
-                name: "Artist".to_string(),
-            }),
-            artists: vec![],
-            album: Album {
-                id: 1,
-                title: "Album".to_string(),
-                number_of_tracks: None,
-                release_date: None,
-                cover: None,
-                artist: None,
-                media_metadata: None,
-                added_at: None,
-                album_type: None,
-            },
-            media_metadata: None,
-            added_at: None,
-        }
-    }
 
     fn make_app() -> App {
         make_app_watching_api().0

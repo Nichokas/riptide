@@ -238,9 +238,15 @@ impl App {
             ApiResponse::PlaylistArt { uuid, image_data } => {
                 if let Some(View::PlaylistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.playlist.uuid == uuid {
-                        detail.art_bytes = Some(image_data);
+                        detail.art_bytes = Some(image_data.clone());
                         detail.art_loading = false;
                     }
+                }
+                // Every playlist cover comes through here; only the mixes Home
+                // can show are worth keeping, or the cache grows with each
+                // playlist opened.
+                if self.is_home_mix(&uuid) {
+                    self.home_art.store(uuid, image_data);
                 }
             }
 
@@ -638,16 +644,19 @@ impl App {
             ApiResponse::NewReleases(items) => {
                 self.home_new_releases.items = items;
                 self.home_new_releases.loading = false;
+                self.sync_home_art();
             }
 
             ApiResponse::DailyMixes(items) => {
                 self.home_daily_mixes.items = items;
                 self.home_daily_mixes.loading = false;
+                self.sync_home_art();
             }
 
             ApiResponse::DiscoveryMixes(items) => {
                 self.home_discovery_mixes.items = items;
                 self.home_discovery_mixes.loading = false;
+                self.sync_home_art();
             }
 
             ApiResponse::Error(msg) => {

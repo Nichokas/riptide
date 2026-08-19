@@ -176,36 +176,14 @@ fn handle_key(app: &mut App, key: KeyEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::ApiRequest;
     use crate::api::models::Artist;
-    use crate::app::Preferences;
-    use crate::lastfm::LastfmCmd;
-    use crate::mpris::MprisState;
+    use crate::app::test_support::{TestApp, test_app};
     use crossterm::event::KeyModifiers;
-    use tokio::sync::watch;
 
-    /// The receivers have to outlive the app: dropping them makes its sends fail.
-    type Channels = (
-        mpsc::UnboundedReceiver<ApiRequest>,
-        mpsc::UnboundedReceiver<PlayerCmd>,
-        watch::Receiver<MprisState>,
-        mpsc::UnboundedReceiver<LastfmCmd>,
-    );
-
-    fn app_on_artists_tab() -> (App, Channels) {
-        let (api_tx, api_rx) = mpsc::unbounded_channel();
-        let (player_tx, player_rx) = mpsc::unbounded_channel();
-        let (mpris_tx, mpris_rx) = watch::channel(MprisState::default());
-        let (lastfm_tx, lastfm_rx) = mpsc::unbounded_channel();
-        let mut app = App::new(
-            api_tx,
-            player_tx,
-            mpris_tx,
-            lastfm_tx,
-            Preferences::default(),
-        );
-        app.current_tab = Tab::Artists;
-        app.artists.append_page(
+    fn app_on_artists_tab() -> TestApp {
+        let mut t = test_app();
+        t.app.current_tab = Tab::Artists;
+        t.app.artists.append_page(
             (0..3)
                 .map(|id| Artist {
                     id,
@@ -215,7 +193,7 @@ mod tests {
                 .collect(),
             None,
         );
-        (app, (api_rx, player_rx, mpris_rx, lastfm_rx))
+        t
     }
 
     fn press(c: char) -> KeyEvent {
@@ -224,39 +202,39 @@ mod tests {
 
     #[test]
     fn j_and_k_move_the_selection() {
-        let (mut app, _channels) = app_on_artists_tab();
+        let mut t = app_on_artists_tab();
 
-        handle_key(&mut app, press('j'));
-        assert_eq!(app.artists.selected, 1);
+        handle_key(&mut t.app, press('j'));
+        assert_eq!(t.app.artists.selected, 1);
 
-        handle_key(&mut app, press('k'));
-        assert_eq!(app.artists.selected, 0);
+        handle_key(&mut t.app, press('k'));
+        assert_eq!(t.app.artists.selected, 0);
     }
 
     /// The queue used to be checked before the palette and ate everything typed
     /// into one opened from it.
     #[test]
     fn the_command_palette_outranks_the_focused_queue() {
-        let (mut app, _channels) = app_on_artists_tab();
-        app.queue_focused = true;
+        let mut t = app_on_artists_tab();
+        t.app.queue_focused = true;
 
-        handle_key(&mut app, press(':'));
-        handle_key(&mut app, press('c'));
+        handle_key(&mut t.app, press(':'));
+        handle_key(&mut t.app, press('c'));
 
-        assert!(app.command.active);
-        assert_eq!(app.command.input, "c");
+        assert!(t.app.command.active);
+        assert_eq!(t.app.command.input, "c");
     }
 
     /// The half that is easy to break: inside a text box they are letters again.
     #[test]
     fn the_filter_box_reads_j_and_k_as_letters() {
-        let (mut app, _channels) = app_on_artists_tab();
-        app.filter_active = true;
+        let mut t = app_on_artists_tab();
+        t.app.filter_active = true;
 
-        handle_key(&mut app, press('j'));
-        handle_key(&mut app, press('k'));
+        handle_key(&mut t.app, press('j'));
+        handle_key(&mut t.app, press('k'));
 
-        assert_eq!(app.active_filter(), "jk");
-        assert_eq!(app.artists.selected, 0);
+        assert_eq!(t.app.active_filter(), "jk");
+        assert_eq!(t.app.artists.selected, 0);
     }
 }
