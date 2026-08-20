@@ -3,7 +3,7 @@
 
 use super::{App, StatusLevel};
 use crate::api::ApiRequest;
-use crate::api::models::{Track, cover_art_url};
+use crate::api::models::{Track, presentation_art_url};
 use crate::mpris::MprisState;
 use crate::player::PlayerCmd;
 
@@ -360,9 +360,10 @@ impl App {
                 },
                 album: t.album.title.clone(),
                 art_url: np
-                    .art_url
-                    .clone()
-                    .or_else(|| t.album.cover.as_deref().map(cover_art_url))
+                    .art_source
+                    .as_deref()
+                    .or(t.album.cover.as_deref())
+                    .map(presentation_art_url)
                     .unwrap_or_default(),
                 duration_us: t.duration as i64 * 1_000_000,
                 position_us: (np.position * 1_000_000.0) as i64,
@@ -1549,6 +1550,67 @@ mod tests {
         assert!(matches!(player_rx.try_recv(), Ok(PlayerCmd::SetVolume(55))));
     }
 
+    /// Queue selection fetches art immediately so the HUD and MPRIS update
+    /// before the stream URL returns. That landing must not fetch again.
+    #[test]
+    fn queue_selection_does_not_refetch_presentation_art_when_stream_url_lands() {
+        let (mut app, mut api_rx, mut player_rx) = make_app_watching_all();
+        let mut mpv = FakeMpv::default();
+        let mut first = track(1);
+        first.album.id = 10;
+        first.album.cover = Some("cover-1".into());
+        let mut second = track(2);
+        second.album.id = 20;
+        second.album.cover = Some("cover-2".into());
+        app.play_tracks(vec![first, second], 0);
+        settle(&mut app, &mut mpv, &mut api_rx, &mut player_rx);
+
+        app.art_fullscreen = true;
+        app.play_from_queue(1);
+        drain(&mut player_rx);
+
+        let mut presentation_fetches = 0;
+        while let Ok(req) = api_rx.try_recv() {
+            if matches!(req, ApiRequest::FetchPresentationArt { album_id: 20, .. }) {
+                presentation_fetches += 1;
+            }
+        }
+        assert_eq!(presentation_fetches, 1);
+
+        app.handle_api_response(crate::api::ApiResponse::AlbumArt {
+            album_id: 20,
+            image_data: vec![3, 2, 1],
+        });
+        app.handle_api_response(crate::api::ApiResponse::PresentationArt {
+            album_id: 20,
+            cover_id: "cover-2".into(),
+            image_data: Some(vec![9, 8, 7]),
+        });
+        assert_eq!(app.now_playing.art_bytes(), Some([3, 2, 1].as_slice()));
+        assert_eq!(
+            app.now_playing.presentation_art_bytes(),
+            Some([9, 8, 7].as_slice())
+        );
+
+        app.handle_api_response(crate::api::ApiResponse::StreamUrl {
+            track_id: 2,
+            url: "url-2".into(),
+            delivered: Default::default(),
+        });
+
+        assert_eq!(app.now_playing.art_bytes(), Some([3, 2, 1].as_slice()));
+        assert_eq!(
+            app.now_playing.presentation_art_bytes(),
+            Some([9, 8, 7].as_slice())
+        );
+        while let Ok(req) = api_rx.try_recv() {
+            assert!(
+                !matches!(req, ApiRequest::FetchPresentationArt { .. }),
+                "StreamUrl must not refetch presentation art for a track the queue already made current"
+            );
+        }
+    }
+
     /// The reported bug: v2 track details carry the artwork as a URL and leave
     /// `album.cover` empty, and replacing `now_playing.track` with them made the
     /// next position tick strip `mpris:artUrl` from the metadata.
@@ -1560,19 +1622,32 @@ mod tests {
         settle(&mut app, &mut mpv, &mut api_rx, &mut player_rx);
 
         let art = "https://resources.tidal.com/images/a/b/320x320.jpg";
+        let presentation = "https://resources.tidal.com/images/a/b/640x640.jpg";
         app.handle_api_response(crate::api::ApiResponse::TrackDetails {
             track_id: 1,
             track: track(1), // album.cover is None, as in real v2 details
             cover_url: Some(art.to_string()),
         });
-        assert_eq!(app.now_playing.art_url.as_deref(), Some(art));
-        assert_eq!(mpris_rx.borrow().art_url, art);
+        assert_eq!(app.now_playing.art_source.as_deref(), Some(art));
+        assert_eq!(mpris_rx.borrow().art_url, presentation);
 
         app.handle_player_event(PlayerEvent::Position(3.0));
         assert_eq!(
             mpris_rx.borrow().art_url,
-            art,
+            presentation,
             "a position tick must not strip the art URL"
+        );
+    }
+
+    #[test]
+    fn mpris_art_url_uses_the_presentation_size() {
+        let (mut app, mpris_rx, _api_rx, _player_rx) = make_app_watching_mpris();
+        app.now_playing.track = Some(track(1));
+        app.now_playing.art_source = Some("33fd4c9b-5673-4c1e-bbd4-5346d397b8e0".into());
+        app.push_mpris_state();
+        assert_eq!(
+            mpris_rx.borrow().art_url,
+            "https://resources.tidal.com/images/33fd4c9b/5673/4c1e/bbd4/5346d397b8e0/640x640.jpg"
         );
     }
 }

@@ -390,6 +390,7 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 | `/`         | Filter list     |
 | `Tab`       | Next tab        |
 | `Shift+Tab` | Previous tab    |
+| `Shift+A`   | Toggle fullscreen art |
 | `Space`     | Play/Pause      |
 | `n`         | Next track      |
 | `p`         | Previous track  |
@@ -484,6 +485,13 @@ Open with `/` (on any tab except Search) and type the start of a destination (Ta
 - `albums` — Go to Albums
 - `playlists` — Go to Playlists
 - `search` — Open search
+- `art` — Show the current album artwork fullscreen
+
+### Fullscreen Art
+
+Press `Shift+A` from any tab or detail view to show the current album cover nearly fullscreen. The underlying view stays untouched, so pressing `Shift+A` again, `Esc`, `Tab`, or `Shift+Tab` returns exactly where you were. A compact playback HUD retains track details, progress, time, and volume; global playback controls and the command palette (`:`) remain available. `/` does not open the list filter while fullscreen art is showing, because that overlay is hidden there. The same mode can be opened from the command palette with `art`.
+
+Fullscreen Art requests Tidal's 640px cover on demand and caps the rendered surface at a 640px edge to bound terminal-protocol memory; normal thumbnails remain 320px.
 
 ## MPRIS
 

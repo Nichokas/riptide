@@ -153,6 +153,15 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    // Fullscreen art is a presentation layer over the active view. Only global
+    // controls apply while it is open, so list navigation cannot mutate the
+    // view hidden beneath it. It also outranks queue focus so Esc dismisses
+    // art instead of the queue.
+    if app.art_fullscreen {
+        handle_global_key(app, key);
+        return;
+    }
+
     if app.queue_focused {
         handle_queue_input(app, key);
         return;
@@ -247,5 +256,24 @@ mod tests {
 
         assert_eq!(t.app.active_filter(), "jk");
         assert_eq!(t.app.artists.selected, 0);
+    }
+
+    #[test]
+    fn fullscreen_art_preempts_queue_focus_for_escape_and_navigation() {
+        let mut t = test_app();
+        t.app.art_fullscreen = true;
+        t.app.queue_focused = true;
+
+        handle_key(
+            &mut t.app,
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+        );
+        assert!(t.app.art_fullscreen);
+        assert!(t.app.status.is_none());
+        assert!(t.app.view_stack.is_empty());
+
+        handle_key(&mut t.app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!t.app.art_fullscreen);
+        assert!(t.app.queue_focused);
     }
 }

@@ -139,7 +139,10 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
 
         ApiRequest::LoadAlbum { album_id } => match client.get_album(album_id).await {
             Ok((album, _cover_url)) => ApiResponse::AlbumLoaded { album },
-            Err(e) => ApiResponse::Error(format!("album: {e}")),
+            Err(error) => ApiResponse::AlbumLoadFailed {
+                album_id,
+                error: error.to_string(),
+            },
         },
 
         ApiRequest::LoadAlbumTracks { album_id } => match client.get_album_tracks(album_id).await {
@@ -151,20 +154,36 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
         },
 
         ApiRequest::FetchAlbumArt { album_id, cover_id } => {
-            let url = if cover_id.starts_with("http") {
-                cover_id.clone()
-            } else {
-                format!(
-                    "https://resources.tidal.com/images/{}/320x320.jpg",
-                    cover_id.replace('-', "/")
-                )
-            };
+            let url = cover_art_url(&cover_id);
             match client.fetch_bytes(&url).await {
                 Ok(data) => ApiResponse::AlbumArt {
                     album_id,
                     image_data: data,
                 },
-                Err(e) => ApiResponse::Error(format!("album art: {e}")),
+                Err(error) => ApiResponse::AlbumArtFailed {
+                    album_id,
+                    error: error.to_string(),
+                },
+            }
+        }
+
+        ApiRequest::FetchPresentationArt { album_id, cover_id } => {
+            let url = presentation_art_url(&cover_id);
+            tracing::debug!(album_id, %url, "fetching presentation artwork");
+            let image_data = match client.fetch_bytes(&url).await {
+                Ok(data) => {
+                    tracing::debug!(album_id, bytes = data.len(), "fetched presentation artwork");
+                    Some(data)
+                }
+                Err(error) => {
+                    tracing::warn!("presentation art unavailable for album {album_id}: {error}");
+                    None
+                }
+            };
+            ApiResponse::PresentationArt {
+                album_id,
+                cover_id,
+                image_data,
             }
         }
 
@@ -172,15 +191,7 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
             artist_id,
             picture_id,
         } => {
-            // picture_id can be either a direct URL (from v2 search) or an ID to construct (from v1 API)
-            let url = if picture_id.starts_with("http") {
-                picture_id.clone()
-            } else {
-                format!(
-                    "https://resources.tidal.com/images/{}/320x320.jpg",
-                    picture_id.replace('-', "/")
-                )
-            };
+            let url = cover_art_url(&picture_id);
             tracing::debug!("FetchArtistArt for artist {}: {}", artist_id, url);
             match client.fetch_bytes(&url).await {
                 Ok(data) => {
@@ -390,7 +401,10 @@ async fn handle_request(client: Arc<ApiClient>, req: ApiRequest) -> ApiResponse 
                 track_id,
                 image_data: data,
             },
-            Err(e) => ApiResponse::Error(format!("track art: {e}")),
+            Err(error) => ApiResponse::TrackArtFailed {
+                track_id,
+                error: error.to_string(),
+            },
         },
 
         ApiRequest::FetchLyrics { track_id } => {

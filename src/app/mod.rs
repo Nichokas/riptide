@@ -35,6 +35,7 @@ pub struct App {
     pub should_quit: bool,
     pub current_tab: Tab,
     pub view_stack: Vec<View>,
+    pub art_fullscreen: bool,
 
     pub home_new_releases: HomeSection<Playlist>,
     pub home_daily_mixes: HomeSection<Playlist>,
@@ -108,6 +109,7 @@ impl App {
             should_quit: false,
             current_tab: Tab::Home,
             view_stack: Vec::new(),
+            art_fullscreen: false,
             home_new_releases: HomeSection::default(),
             home_daily_mixes: HomeSection::default(),
             home_discovery_mixes: HomeSection::default(),
@@ -132,7 +134,7 @@ impl App {
             playlists_sort: prefs.playlists_sort,
             now_playing: {
                 let mut np = NowPlaying::default();
-                np.art_bytes = Some(DEFAULT_ART.to_vec());
+                np.set_art_bytes(Some(DEFAULT_ART.to_vec()));
                 np.volume = prefs.volume;
                 np.shuffle = prefs.shuffle;
                 np

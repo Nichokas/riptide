@@ -93,6 +93,9 @@ pub(super) fn execute_command(app: &mut App, cmd: &str) {
             app.search.modal_open = true;
             app.search.query.clear();
         }
+        "art" => {
+            app.enter_art_fullscreen();
+        }
         _ => {}
     }
 }

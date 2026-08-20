@@ -42,17 +42,31 @@ impl Default for CommandState {
 }
 
 impl CommandState {
-    /// The commands offered in the palette, named to match the tab titles.
-    pub const COMMANDS: &'static [&'static str] =
-        &["home", "tracks", "artists", "albums", "playlists", "search"];
+    /// Destinations and presentation modes offered in the palette.
+    pub const COMMANDS: &'static [&'static str] = &[
+        "home",
+        "tracks",
+        "artists",
+        "albums",
+        "playlists",
+        "search",
+        "art",
+    ];
 
     pub fn matches(&self) -> Vec<&'static str> {
         let q = self.input.to_lowercase();
-        Self::COMMANDS
+        let mut matches: Vec<&'static str> = Self::COMMANDS
             .iter()
             .filter(|&&c| c.starts_with(q.as_str()))
             .copied()
-            .collect()
+            .collect();
+        // "art" is a prefix of "artists", so without this typing the whole word
+        // leaves the longer command selected and Enter runs that one instead.
+        if let Some(exact) = matches.iter().position(|&c| c == q) {
+            let cmd = matches.remove(exact);
+            matches.insert(0, cmd);
+        }
+        matches
     }
 }
 
@@ -69,6 +83,21 @@ mod tests {
         let matches = cmd.matches();
         assert!(matches.contains(&"tracks"));
         assert!(!matches.contains(&"artists"));
+    }
+
+    #[test]
+    fn command_state_ranks_exact_match_first() {
+        let partial = CommandState {
+            input: "ar".to_string(),
+            ..CommandState::default()
+        };
+        assert_eq!(partial.matches(), vec!["artists", "art"]);
+
+        let exact = CommandState {
+            input: "art".to_string(),
+            ..CommandState::default()
+        };
+        assert_eq!(exact.matches(), vec!["art", "artists"]);
     }
 
     #[test]

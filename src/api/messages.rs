@@ -44,6 +44,10 @@ pub enum ApiRequest {
         album_id: u64,
         cover_id: String,
     },
+    FetchPresentationArt {
+        album_id: u64,
+        cover_id: String,
+    },
     FetchArtistArt {
         artist_id: u64,
         picture_id: String,
@@ -152,6 +156,10 @@ pub enum ApiResponse {
     AlbumLoaded {
         album: Album,
     },
+    AlbumLoadFailed {
+        album_id: u64,
+        error: String,
+    },
     AlbumTracks {
         album_id: u64,
         tracks: Vec<Track>,
@@ -159,6 +167,15 @@ pub enum ApiResponse {
     AlbumArt {
         album_id: u64,
         image_data: Vec<u8>,
+    },
+    AlbumArtFailed {
+        album_id: u64,
+        error: String,
+    },
+    PresentationArt {
+        album_id: u64,
+        cover_id: String,
+        image_data: Option<Vec<u8>>,
     },
     ArtistArt {
         artist_id: u64,
@@ -239,6 +256,10 @@ pub enum ApiResponse {
     TrackArt {
         track_id: u64,
         image_data: Vec<u8>,
+    },
+    TrackArtFailed {
+        track_id: u64,
+        error: String,
     },
     Error(String),
 }

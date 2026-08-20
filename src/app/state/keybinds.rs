@@ -63,6 +63,10 @@ impl KeybindGroup {
                     action: "Previous tab",
                 },
                 Keybind {
+                    key: "Shift+A",
+                    action: "Toggle fullscreen art",
+                },
+                Keybind {
                     key: "Space",
                     action: "Play/Pause",
                 },

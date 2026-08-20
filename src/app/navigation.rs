@@ -12,7 +12,7 @@ impl App {
     // ── Tab switching ─────────────────────────────────────────────────────────
 
     pub fn next_tab(&mut self) {
-        self.current_tab = match self.current_tab {
+        let tab = match self.current_tab {
             Tab::Home => Tab::Favorites,
             Tab::Favorites => Tab::Artists,
             Tab::Artists => Tab::Albums,
@@ -20,12 +20,11 @@ impl App {
             Tab::Playlists => Tab::Search,
             Tab::Search => Tab::Home,
         };
-        self.view_stack.clear();
-        self.on_tab_entered();
+        self.set_tab(tab);
     }
 
     pub fn prev_tab(&mut self) {
-        self.current_tab = match self.current_tab {
+        let tab = match self.current_tab {
             Tab::Home => Tab::Search,
             Tab::Favorites => Tab::Home,
             Tab::Artists => Tab::Favorites,
@@ -33,14 +32,35 @@ impl App {
             Tab::Playlists => Tab::Albums,
             Tab::Search => Tab::Playlists,
         };
-        self.view_stack.clear();
-        self.on_tab_entered();
+        self.set_tab(tab);
     }
 
     pub fn set_tab(&mut self, tab: Tab) {
         self.current_tab = tab;
+        self.art_fullscreen = false;
         self.view_stack.clear();
         self.on_tab_entered();
+    }
+
+    /// Show album art without disturbing the tab or detail view underneath it.
+    pub fn enter_art_fullscreen(&mut self) {
+        if self.art_fullscreen {
+            return;
+        }
+        self.art_fullscreen = true;
+        self.fetch_presentation_art();
+    }
+
+    pub fn exit_art_fullscreen(&mut self) {
+        self.art_fullscreen = false;
+    }
+
+    pub fn toggle_art_fullscreen(&mut self) {
+        if self.art_fullscreen {
+            self.exit_art_fullscreen();
+        } else {
+            self.enter_art_fullscreen();
+        }
     }
 
     /// Landing on Search drops straight into the query box, but only when there
@@ -335,7 +355,34 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::ApiRequest;
+    use crate::api::models::{Album, ArtistRef, Track};
     use crate::app::test_support::{TestApp, test_app};
+
+    fn track() -> Track {
+        Track {
+            id: 1,
+            title: "Track".to_string(),
+            duration: 180,
+            artist: Some(ArtistRef {
+                name: "Artist".to_string(),
+            }),
+            artists: Vec::new(),
+            album: Album {
+                id: 2,
+                title: "Album".to_string(),
+                number_of_tracks: None,
+                release_date: None,
+                cover: None,
+                artist: None,
+                media_metadata: None,
+                added_at: None,
+                album_type: None,
+            },
+            media_metadata: None,
+            added_at: None,
+        }
+    }
 
     fn mix(n: usize) -> Playlist {
         Playlist {
@@ -365,6 +412,55 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn switching_tabs_exits_fullscreen_and_resets_queue_focus() {
+        let mut t = test_app();
+        t.app.current_tab = Tab::Search;
+        t.app.art_fullscreen = true;
+        t.app.queue_focused = true;
+
+        t.app.next_tab();
+        assert_eq!(t.app.current_tab, Tab::Home);
+        assert!(!t.app.art_fullscreen);
+        assert!(!t.app.queue_focused);
+
+        t.app.art_fullscreen = true;
+        t.app.prev_tab();
+        assert_eq!(t.app.current_tab, Tab::Search);
+        assert!(!t.app.art_fullscreen);
+    }
+
+    #[test]
+    fn fullscreen_art_preserves_the_current_view_and_requests_art_on_demand() {
+        let mut t = test_app();
+        t.drain_api();
+        t.app.now_playing.track = Some(track());
+        t.app.now_playing.art_source = Some("cover-id".to_string());
+        t.app.current_tab = Tab::Albums;
+        t.app.open_album(track().album);
+        t.app.queue_focused = true;
+        t.drain_api();
+
+        t.app.enter_art_fullscreen();
+
+        assert!(t.app.art_fullscreen);
+        assert_eq!(t.app.current_tab, Tab::Albums);
+        assert_eq!(t.app.view_stack.len(), 1);
+        assert!(t.app.queue_focused);
+        assert!(t.app.now_playing.presentation_art_loading());
+        assert!(matches!(
+            t.api_rx.try_recv(),
+            Ok(ApiRequest::FetchPresentationArt { album_id: 2, cover_id })
+                if cover_id == "cover-id"
+        ));
+
+        t.app.toggle_art_fullscreen();
+        assert!(!t.app.art_fullscreen);
+        assert_eq!(t.app.current_tab, Tab::Albums);
+        assert_eq!(t.app.view_stack.len(), 1);
+        assert!(t.app.queue_focused);
     }
 
     #[test]

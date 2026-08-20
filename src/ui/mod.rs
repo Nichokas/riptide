@@ -18,6 +18,7 @@ use crate::playlist::PlaylistDetailFocus;
 use crate::search::SearchPane;
 
 mod album_detail;
+mod art;
 mod artist_detail;
 mod carousel;
 mod footer;
@@ -34,6 +35,7 @@ mod tabs;
 mod theme;
 
 use album_detail::*;
+use art::*;
 use artist_detail::*;
 use carousel::*;
 use footer::*;
@@ -51,6 +53,19 @@ use theme::*;
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
+    let overlays = Overlays::none()
+        .with(Overlays::COMMAND, app.command.active)
+        .with(Overlays::SORT, app.sort_palette.active)
+        .with(Overlays::ARTIST_PICKER, app.artist_selection.active)
+        .with(Overlays::HELP, app.help_active)
+        .with(Overlays::STATUS, app.status.is_some());
+    prepare_image_frame(app.art_fullscreen, overlays);
+
+    if app.art_fullscreen {
+        render_art_view(f, app, area);
+        render_overlays(f, app, area);
+        return;
+    }
 
     let rows = Layout::vertical([
         Constraint::Length(3),  // tab bar (boxed active tab needs 3 rows)
@@ -74,6 +89,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     render_now_playing(f, app, rows[2]);
     render_footer(f, app, rows[3]);
 
+    render_overlays(f, app, area);
+}
+
+fn render_overlays(f: &mut Frame, app: &App, area: ratatui::layout::Rect) {
     if app.command.active {
         render_command_overlay(f, app, area);
     }
