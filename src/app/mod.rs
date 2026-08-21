@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 mod library;
 mod loading;
@@ -7,6 +7,8 @@ mod navigation;
 mod playback;
 mod responses;
 mod state;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use crate::playlist::{PlaylistDetail, PlaylistDetailFocus};
 pub use state::*;
@@ -43,11 +45,13 @@ pub struct App {
     pub should_quit: bool,
     pub current_tab: Tab,
     pub view_stack: Vec<View>,
+    pub art_fullscreen: bool,
 
     pub home_new_releases: HomeSection<Playlist>,
     pub home_daily_mixes: HomeSection<Playlist>,
     pub home_discovery_mixes: HomeSection<Playlist>,
     pub home_section_focus: HomeSectionFocus,
+    pub home_art: HomeArt,
 
     pub artists: StatefulList<Artist>,
     pub fav_albums: StatefulList<Album>,
@@ -56,8 +60,15 @@ pub struct App {
     pub favorite_track_ids: HashSet<u64>,
     pub favorite_album_ids: HashSet<u64>,
     pub favorite_artist_ids: HashSet<u64>,
+    /// Playlists are keyed by uuid, not the numeric id the other three use.
+    /// Mirrors `playlists.items` exactly — the two are updated together, so a
+    /// removal still in flight never reads as already gone.
+    pub favorite_playlist_ids: HashSet<String>,
     pub search: SearchState,
     pub command: CommandState,
+    /// Whether the filter box is open and capturing input. The query itself
+    /// lives on each list, so every tab keeps its own.
+    pub filter_active: bool,
     pub sort_palette: SortPalette,
     pub artist_selection: ArtistSelection,
     pub tracks_sort: Option<SortField>,
@@ -70,6 +81,9 @@ pub struct App {
     pub queue_visible: bool,
     pub queue_cursor: usize,
     queue_viewport: ListViewport,
+
+    /// Most recent library removal, restorable with `u` until the next one.
+    pub last_removal: Option<Removal>,
 
     pub help_active: bool,
     pub help_scroll: u16,
@@ -91,6 +105,15 @@ pub struct App {
     update_actor: Option<UpdateActorHandles>,
 
     pub tick: u64,
+    /// When the marquee's cycle started. Reset on every keypress, so a row the
+    /// cursor just landed on scrolls from its start rather than picking up
+    /// wherever the clock happened to be.
+    ///
+    /// Wall-clock rather than a frame count: the draw loop's rate depends on the
+    /// terminal and on what is being drawn — album art roughly halves it — so
+    /// timing the cycle in frames made the same constants mean different things
+    /// on different setups.
+    pub marquee_epoch: std::time::Instant,
     /// (message, level, Instant when set) — cleared automatically after ~5 s
     pub status: Option<(String, StatusLevel, std::time::Instant)>,
 
@@ -120,10 +143,12 @@ impl App {
             should_quit: false,
             current_tab: Tab::Home,
             view_stack: Vec::new(),
+            art_fullscreen: false,
             home_new_releases: HomeSection::default(),
             home_daily_mixes: HomeSection::default(),
             home_discovery_mixes: HomeSection::default(),
             home_section_focus: HomeSectionFocus::default(),
+            home_art: HomeArt::default(),
             artists: StatefulList::default(),
             fav_albums: StatefulList::default(),
             playlists: StatefulList::default(),
@@ -131,8 +156,10 @@ impl App {
             favorite_track_ids: HashSet::new(),
             favorite_album_ids: HashSet::new(),
             favorite_artist_ids: HashSet::new(),
+            favorite_playlist_ids: HashSet::new(),
             search: SearchState::default(),
             command: CommandState::default(),
+            filter_active: false,
             sort_palette: SortPalette::default(),
             artist_selection: ArtistSelection::default(),
             tracks_sort: prefs.tracks_sort,
@@ -141,7 +168,7 @@ impl App {
             playlists_sort: prefs.playlists_sort,
             now_playing: {
                 let mut np = NowPlaying::default();
-                np.art_bytes = Some(DEFAULT_ART.to_vec());
+                np.set_art_bytes(Some(DEFAULT_ART.to_vec()));
                 np.volume = prefs.volume;
                 np.shuffle = prefs.shuffle;
                 np
@@ -150,6 +177,7 @@ impl App {
             queue_visible: prefs.queue_visible,
             queue_cursor: 0,
             queue_viewport: ListViewport::default(),
+            last_removal: None,
             help_active: false,
             help_scroll: 0,
             update: UpdateState::default(),
@@ -165,6 +193,7 @@ impl App {
                 cmd_rx: update_cmd_rx,
             }),
             tick: 0,
+            marquee_epoch: std::time::Instant::now(),
             status: None,
             api_tx,
             player_tx,
@@ -174,6 +203,9 @@ impl App {
         // mpv starts at its own default, so the restored level has to be pushed
         // across rather than just held in state.
         let _ = app.player_tx.send(PlayerCmd::SetVolume(prefs.volume));
+        // MPRIS clients otherwise read volume 0 / shuffle off until the first
+        // playback event pushes real state.
+        app.push_mpris_state();
 
         app.load_home();
         app.load_artists();
@@ -216,6 +248,11 @@ impl App {
         self.queue_cursor = self
             .queue_viewport
             .next_page(self.queue_cursor, self.now_playing.queue.len());
+    }
+
+    /// Time since the last keypress, driving the marquee on the selected row.
+    pub fn marquee_phase(&self) -> std::time::Duration {
+        self.marquee_epoch.elapsed()
     }
 
     pub fn tick(&mut self) {
@@ -316,6 +353,15 @@ impl App {
 
     pub(crate) fn rebuild_favorite_artist_ids(&mut self) {
         self.favorite_artist_ids = self.artists.items.iter().map(|a| a.id).collect();
+    }
+
+    pub(crate) fn rebuild_favorite_playlist_ids(&mut self) {
+        self.favorite_playlist_ids = self
+            .playlists
+            .items
+            .iter()
+            .map(|p| p.uuid.clone())
+            .collect();
     }
 
     /// Copy a share URL to the system clipboard and confirm via the status toast.

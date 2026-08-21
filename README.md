@@ -8,12 +8,14 @@
     - [Automated Install](#automated-install)
     - [Manual Install](#manual-install)
     - [Arch (AUR)](#arch-aur)
+    - [Fedora (COPR)](#fedora-copr)
     - [Build from Source](#build-from-source)
     - [Nix](#nix)
 - [Setup](#setup)
 - [Configuration](#configuration)
 - [Last.fm Scrobbling](#lastfm-scrobbling)
 - [Keybindings](#keybindings)
+- [MPRIS](#mpris)
 - [Image Rendering](#image-rendering)
 - [Logging](#logging)
 - [License](#license)
@@ -37,6 +39,8 @@ A terminal UI music player for Tidal, built with Rust.
 - Sort any library list by name, artist, or date added — your choice is remembered between sessions and shown in the
   list header
 - Volume, shuffle, and queue visibility persist across restarts
+- MPRIS support — media keys, `playerctl`, and desktop widgets see track metadata and album art and can control
+  playback, volume, seeking, and shuffle
 
 ## Requirements
 
@@ -123,6 +127,29 @@ paru -S riptide
 # or if using yay
 yay -S riptide
 ```
+
+### Fedora (COPR)
+
+Riptide is available from a [COPR](https://copr.fedorainfracloud.org/) user
+repository, built for Fedora 43, 44 and 45 on x86_64:
+
+```bash
+sudo dnf copr enable fezzikthegiant/riptide
+sudo dnf install riptide
+```
+
+`mpv` is pulled in automatically as a dependency. Updates arrive through
+`dnf upgrade` like any other package.
+
+To remove the repository again:
+
+```bash
+sudo dnf copr disable fezzikthegiant/riptide
+```
+
+> [!NOTE]
+> COPR is Fedora's user-repository service, not the official Fedora
+> repositories — packages there are built and signed by the project maintainer.
 
 ### Build from Source
 
@@ -234,6 +261,28 @@ It is created automatically on first run. Example:
 }
 ```
 
+### Client credentials
+
+`client_id` and `client_secret` are `null` by default, which uses Riptide's
+built-in client. You only need to set them to use a different one.
+
+> [!IMPORTANT]
+> They must belong to a **Limited Input Device** client — the kind Tidal registers
+> for TVs, consoles and car systems. Riptide signs in with OAuth's device flow
+> (it prints a code you approve in a browser), and Tidal only permits that flow
+> for those clients.
+>
+> Credentials from the [Tidal developer portal](https://developer.tidal.com) are
+> **not** of that kind. They are issued for the authorization-code and
+> client-credentials flows, so `device_authorization` rejects them with
+> *"Client is not a Limited Input Device client"* — and their tokens are refused
+> by the endpoint Riptide streams through, so a browser login would not help
+> either.
+
+Note that the built-in client is limited to lossless (16-bit/44.1 kHz). A `MAX`
+badge means the release exists in hi-res in Tidal's catalogue, not that it can be
+streamed here; the now-playing bar shows what was actually delivered.
+
 ### Preferences
 
 The `prefs` block records UI choices so they survive a restart. It is written once when Riptide exits, and every key is
@@ -337,9 +386,11 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 |-------------|-----------------|
 | `?`         | Show this help  |
 | `q`         | Quit            |
-| `/`         | Command palette |
+| `:`         | Command palette |
+| `/`         | Filter list     |
 | `Tab`       | Next tab        |
 | `Shift+Tab` | Previous tab    |
+| `Shift+A`   | Toggle fullscreen art |
 | `Space`     | Play/Pause      |
 | `n`         | Next track      |
 | `p`         | Previous track  |
@@ -352,35 +403,56 @@ Press `?` in the player to view all keybinds. Here's the complete reference:
 
 These work everywhere, including while the queue is focused.
 
+### Filtering
+
+Press `/` on the Tracks, Artists, Albums or Playlists tab to narrow the list as
+you type. Tracks match on title or artist; the others match on name.
+
+| Key         | Action                                  |
+|-------------|-----------------------------------------|
+| `/`         | Open the filter box                     |
+| `Enter`     | Close the box, keep the list filtered   |
+| `Esc`       | Clear the filter and show everything    |
+
+The active filter is shown in the list header, e.g. `Tracks (3 of 214) · A-Z · /ts`.
+It stays applied when you switch tabs, and `Esc` clears it from anywhere on the tab.
+
 ### Navigation
 
-| Key     | Action                           |
-|---------|----------------------------------|
-| `↑`     | Up                               |
-| `↓`     | Down                             |
-| `Enter` | Select/Open                      |
-| `a`     | Add to queue                     |
-| `f`     | Toggle favorite/follow/save      |
-| `g`     | Go to artist                     |
-| `s`     | Sort (opens on the current sort) |
-| `r`     | Start radio                      |
-| `c`     | Copy share link (song)           |
-| `C`     | Copy share link (album/playlist) |
-| `→`     | Focus queue                      |
+| Key        | Action                           |
+|------------|----------------------------------|
+| `↑` or `k` | Up                               |
+| `↓` or `j` | Down                             |
+| `←` or `h` | Previous pane/section            |
+| `→` or `l` | Next pane/section, then queue    |
+| `Enter`    | Select/Open                      |
+| `a`        | Add to queue                     |
+| `f`        | Favorite/follow/save             |
+| `d`        | Remove from library              |
+| `u`        | Undo the last removal            |
+| `g`        | Go to artist                     |
+| `s`        | Sort (opens on the current sort) |
+| `r`        | Start radio                      |
+| `c`        | Copy share link (song)           |
+| `C`        | Copy share link (album/playlist) |
+
+The vim directions work anywhere a list does, including the queue, the detail
+views and the help modal — but not while a text box is open, where they are
+just letters.
 
 ### Queue
 
-| Key     | Action                  |
-|---------|-------------------------|
-| `↑`     | Up                      |
-| `↓`     | Down                    |
-| `d`     | Remove track            |
-| `c`     | Copy share link (song)  |
-| `C`     | Copy share link (album) |
-| `g`     | Go to artist            |
-| `Enter` | Play track              |
-| `t`     | Show/hide queue         |
-| `Esc`   | Unfocus queue           |
+| Key                 | Action                  |
+|---------------------|-------------------------|
+| `↑` or `k`          | Up                      |
+| `↓` or `j`          | Down                    |
+| `d`                 | Remove track            |
+| `c`                 | Copy share link (song)  |
+| `C`                 | Copy share link (album) |
+| `g`                 | Go to artist            |
+| `Enter`             | Play track              |
+| `t`                 | Show/hide queue         |
+| `Esc`, `←` or `h`   | Unfocus queue           |
 
 Hiding the queue with `t` also releases focus, and `→` won't focus it again while it's hidden.
 
@@ -391,18 +463,18 @@ Jump to the Search tab with `Tab`, or via the command palette.
 The search box opens automatically when there are no results yet. Once you have results the tab shows them instead, so
 you can leave and come back without losing them — press `/` to start a new search.
 
-| Key     | Action                                 |
-|---------|----------------------------------------|
-| `/`     | Open the search box                    |
-| `↑`     | Up                                     |
-| `↓`     | Down                                   |
-| `← →`   | Switch pane (Tracks/Artists/Playlists) |
-| `Enter` | Run the search, or open a result       |
-| `Esc`   | Close the search box                   |
+| Key              | Action                                 |
+|------------------|----------------------------------------|
+| `/`              | Open the search box                    |
+| `↑` or `k`       | Up                                     |
+| `↓` or `j`       | Down                                   |
+| `← →` or `h l`   | Switch pane (Tracks/Artists/Playlists) |
+| `Enter`          | Run the search, or open a result       |
+| `Esc`            | Close the search box                   |
 
 `Tab` and `Shift+Tab` change tabs as usual, even with the search box open.
 
-Note that `/` opens the search box on the Search tab, and the command palette everywhere else.
+Note that `/` opens the search box on the Search tab, and the list filter everywhere else.
 
 ### Command Palette
 
@@ -414,6 +486,32 @@ Open with `/` (on any tab except Search) and type the start of a destination (Ta
 - `albums` — Go to Albums
 - `playlists` — Go to Playlists
 - `search` — Open search
+- `art` — Show the current album artwork fullscreen
+
+### Fullscreen Art
+
+Press `Shift+A` from any tab or detail view to show the current album cover nearly fullscreen. The underlying view stays untouched, so pressing `Shift+A` again, `Esc`, `Tab`, or `Shift+Tab` returns exactly where you were. A compact playback HUD retains track details, progress, time, and volume; global playback controls and the command palette (`:`) remain available. `/` does not open the list filter while fullscreen art is showing, because that overlay is hidden there. The same mode can be opened from the command palette with `art`.
+
+Fullscreen Art requests Tidal's 640px cover on demand and caps the rendered surface at a 640px edge to bound terminal-protocol memory; normal thumbnails remain 320px.
+
+## MPRIS
+
+Riptide serves the [MPRIS D-Bus interface](https://specifications.freedesktop.org/mpris-spec/latest/) as
+`org.mpris.MediaPlayer2.riptide`, so media keys, desktop environment widgets, and tools like
+[playerctl](https://github.com/altdesktop/playerctl) work out of the box:
+
+```bash
+playerctl -p riptide play-pause
+playerctl -p riptide next
+playerctl -p riptide position 30          # seek to 0:30
+playerctl -p riptide volume 0.5           # 50%
+playerctl -p riptide shuffle On
+playerctl -p riptide metadata mpris:artUrl
+```
+
+Track metadata (title, all artists, album, cover art URL, duration), playback status, position, volume, and shuffle
+are all live, and changes are signalled to clients only when something actually changed. If a second riptide instance
+is started it serves under `org.mpris.MediaPlayer2.riptide.instance<pid>` instead of taking the name over.
 
 ## Image Rendering
 
@@ -432,16 +530,22 @@ characters as a universal fallback.
 
 ## Logging
 
-Logs are written to `~/.local/share/riptide/riptide.log.<date>` and roll on a daily basis. By default, the logging level
-is set to `INFO` providing only errors and important events.
+Logs are written to `~/.local/share/riptide/riptide.log.<date>` and roll daily. By
+default only warnings and errors are recorded.
 
-To adjust logging verbosity for debugging, use the `RIPTIDE_LOG_LEVEL` environment variable:
+To adjust verbosity, use the `RIPTIDE_LOG_LEVEL` environment variable:
 
 ```bash
-RIPTIDE_LOG_LEVEL=debug riptide  # Verbose logging (includes all API requests)
-RIPTIDE_LOG_LEVEL=info riptide   # Standard logging (errors and important events)
+RIPTIDE_LOG_LEVEL=info riptide   # What loaded, and every track as it starts playing
+RIPTIDE_LOG_LEVEL=debug riptide  # Adds one line per API request and parsed page
 RIPTIDE_LOG_LEVEL=error riptide  # Errors only
 ```
+
+A plain level applies to riptide alone. To include a dependency's own logging, pass
+a full directive: `RIPTIDE_LOG_LEVEL=riptide=debug,hyper=debug riptide`.
+
+If you are attaching a log to a bug report, `info` is usually enough to show what
+happened, and `debug` adds the API detail.
 
 ## License
 

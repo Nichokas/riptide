@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 //! Track detail, lyrics, and the favourite-tracks collection.
 
@@ -13,8 +13,6 @@ use crate::api::models::*;
 fn parse_v2_user_collection_tracks(
     api_resp: &serde_json::Value,
 ) -> Result<(Vec<Track>, u32, Option<String>)> {
-    tracing::debug!("Parsing favorite tracks from JSON:API response");
-
     let mut track_ids = Vec::new();
     let mut added_at_map = HashMap::new();
 
@@ -34,7 +32,6 @@ fn parse_v2_user_collection_tracks(
     });
 
     if let Some(items) = items_data {
-        tracing::debug!("Extracting {} track references", items.len());
         for item_ref in items {
             if let Some(id) = item_ref.get("id").and_then(|v| v.as_str()) {
                 track_ids.push(id.to_string());
@@ -54,10 +51,8 @@ fn parse_v2_user_collection_tracks(
     let mut artist_map = HashMap::new();
 
     if let Some(included) = api_resp.get("included").and_then(|v| v.as_array()) {
-        tracing::debug!("Parsing {} included objects", included.len());
         for item in included {
             if let Some(item_type) = item.get("type").and_then(|v| v.as_str()) {
-                tracing::debug!("Included object type: {}", item_type);
                 if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
                     if item_type == "tracks" {
                         track_map.insert(id.to_string(), item.clone());
@@ -67,17 +62,12 @@ fn parse_v2_user_collection_tracks(
                 }
             }
         }
-        tracing::debug!(
-            "Built maps: {} tracks, {} artists",
-            track_map.len(),
-            artist_map.len()
-        );
-    } else {
-        tracing::debug!("No included array in response");
     }
 
     // Build track objects from IDs and included data
     let mut tracks = Vec::new();
+    let mut unresolved_artists = 0usize;
+    let referenced = track_ids.len();
     for track_id in track_ids {
         if let Some(track_obj) = track_map.get(&track_id) {
             if let Some(attrs) = track_obj.get("attributes").and_then(|v| v.as_object()) {
@@ -90,17 +80,9 @@ fn parse_v2_user_collection_tracks(
                                 .unwrap_or("PT0S"),
                         );
 
-                        let artist_name = extract_artist_from_track(track_obj, &artist_map);
-                        if artist_name == "Unknown" {
-                            tracing::debug!(
-                                "Track '{}' - Artist relationships: {:?}, Artist map size: {}",
-                                title,
-                                track_obj
-                                    .get("relationships")
-                                    .and_then(|r| r.get("artists"))
-                                    .is_some(),
-                                artist_map.len()
-                            );
+                        let artists = extract_artists_from_track(track_obj, &artist_map);
+                        if artists.is_empty() {
+                            unresolved_artists += 1;
                         }
 
                         let album_title = attrs
@@ -117,14 +99,7 @@ fn parse_v2_user_collection_tracks(
                             number_of_tracks: None,
                             release_date: None,
                             cover: None,
-                            artist: if artist_name == "Unknown" {
-                                None
-                            } else {
-                                Some(ArtistRef {
-                                    name: artist_name.clone(),
-                                })
-                            },
-                            audio_quality: None,
+                            artist: artists.first().cloned(),
                             media_metadata: None,
                             added_at: None,
                             album_type: None,
@@ -134,16 +109,9 @@ fn parse_v2_user_collection_tracks(
                             id,
                             title: title.to_string(),
                             duration,
-                            artist: if artist_name == "Unknown" {
-                                None
-                            } else {
-                                Some(ArtistRef {
-                                    name: artist_name.clone(),
-                                })
-                            },
-                            artists: Vec::new(),
+                            artist: artists.first().cloned(),
+                            artists,
                             album,
-                            audio_quality: None,
                             media_metadata: extract_media_metadata(attrs),
                             added_at: added_at_map.get(&track_id).cloned(),
                         };
@@ -181,10 +149,22 @@ fn parse_v2_user_collection_tracks(
         .map(|s| s.to_string());
 
     tracing::debug!(
-        "Track parsing complete: {} tracks parsed (total: {})",
+        "parsed {} of {} referenced favorite tracks (collection total {total})",
         tracks.len(),
-        total
+        referenced
     );
+    if tracks.len() < referenced {
+        tracing::warn!(
+            "{} favorite tracks were referenced but absent from the response body",
+            referenced - tracks.len()
+        );
+    }
+    if unresolved_artists > 0 {
+        tracing::warn!(
+            "{} favorite tracks have no resolvable artist and will show as Unknown",
+            unresolved_artists
+        );
+    }
 
     Ok((tracks, total, next_url))
 }
@@ -228,7 +208,6 @@ fn parse_v2_track_details(api_resp: &serde_json::Value) -> Result<(Track, Option
         release_date: None,
         cover: None,
         artist: None,
-        audio_quality: None,
         media_metadata: None,
         added_at: None,
         album_type: None,
@@ -317,7 +296,6 @@ fn parse_v2_track_details(api_resp: &serde_json::Value) -> Result<(Track, Option
         artist,
         artists,
         album,
-        audio_quality: None,
         media_metadata: None,
         added_at: None,
     };
@@ -327,9 +305,8 @@ fn parse_v2_track_details(api_resp: &serde_json::Value) -> Result<(Track, Option
 
 impl ApiClient {
     pub async fn get_favorite_tracks(&self) -> Result<(Vec<Track>, u32)> {
-        tracing::debug!("Fetching all favorite tracks");
-        tracing::debug!("API request: GET /userCollectionTracks/me (v2)");
-
+        let started = std::time::Instant::now();
+        let mut page = 0usize;
         let token = self.token.read().await.clone();
         let mut all_tracks = Vec::new();
         let mut total = 0u32;
@@ -348,8 +325,6 @@ impl ApiClient {
             } else {
                 format!("{OPENAPI_BASE}{url}")
             };
-
-            tracing::debug!("Fetching favorite tracks page: {}", full_url);
 
             let resp = self
                 .http
@@ -370,21 +345,22 @@ impl ApiClient {
             let api_resp: serde_json::Value = serde_json::from_str(&body)?;
             let (tracks, resp_total, next_cursor) = parse_v2_user_collection_tracks(&api_resp)?;
 
+            page += 1;
+            tracing::debug!(
+                "favorites page {page}: +{} tracks, {} so far",
+                tracks.len(),
+                all_tracks.len() + tracks.len()
+            );
+
             all_tracks.extend(tracks);
             total = total.max(resp_total);
             next_url = next_cursor;
-
-            if next_url.is_some() {
-                tracing::debug!("More favorite tracks available, continuing pagination");
-            } else {
-                tracing::debug!("No more pages");
-            }
         }
 
-        tracing::debug!(
-            "Fetched {} favorite tracks (total: {})",
+        tracing::info!(
+            "loaded {} favorite tracks across {page} page(s) in {:?} (collection reports {total})",
             all_tracks.len(),
-            total
+            started.elapsed()
         );
         Ok((all_tracks, total))
     }
@@ -505,10 +481,24 @@ mod tests {
             "included": [
                 { "id": "178390467", "type": "tracks", "attributes": {
                     "title": "Lanterns", "duration": "PT3M58S",
-                    "mediaTags": ["HIRES_LOSSLESS", "LOSSLESS"] } },
+                    "mediaTags": ["HIRES_LOSSLESS", "LOSSLESS"] },
+                  "relationships": { "artists": { "data": [
+                      { "id": "3652937", "type": "artists" },
+                      { "id": "4761052", "type": "artists" },
+                      { "id": "9999999", "type": "artists" }
+                  ] } } },
                 { "id": "77712754", "type": "tracks", "attributes": {
                     "title": "Hail to the King", "duration": "PT5M04S",
-                    "mediaTags": ["LOSSLESS"] } }
+                    "mediaTags": ["LOSSLESS"] },
+                  "relationships": { "artists": { "data": [
+                      { "id": "19368", "type": "artists" }
+                  ] } } },
+                { "id": "3652937", "type": "artists",
+                  "attributes": { "name": "Bring Me The Horizon" } },
+                { "id": "4761052", "type": "artists",
+                  "attributes": { "name": "BABYMETAL" } },
+                { "id": "19368", "type": "artists",
+                  "attributes": { "name": "Avenged Sevenfold" } }
             ]
         })
     }
@@ -519,6 +509,20 @@ mod tests {
         assert_eq!(tracks.len(), 2);
         assert_eq!(tracks[0].quality_badge(), Some("MAX"));
         assert_eq!(tracks[1].quality_badge(), Some("HI-FI"));
+    }
+
+    /// A track's `artists` relationship routinely lists more than one, and the
+    /// UI shows every credit. Id 9999999 is deliberately absent from `included`.
+    #[test]
+    fn every_credited_artist_is_parsed() {
+        let (tracks, _, _) = parse_v2_user_collection_tracks(&collection_page()).unwrap();
+
+        assert_eq!(
+            tracks[0].all_artist_names(),
+            "Bring Me The Horizon, BABYMETAL"
+        );
+        assert_eq!(tracks[0].artist_name(), "Bring Me The Horizon");
+        assert_eq!(tracks[1].all_artist_names(), "Avenged Sevenfold");
     }
 
     #[test]

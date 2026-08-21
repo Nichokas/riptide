@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 //! Bindings that apply in every context: transport, volume, tabs, help.
 
@@ -43,6 +43,9 @@ pub(super) fn leaving_artist(app: &App) -> bool {
 /// next/previous track and volume.
 pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
     match key.code {
+        KeyCode::Char('A') | KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            app.toggle_art_fullscreen();
+        }
         KeyCode::Char('q') | KeyCode::Char('Q') => {
             app.should_quit = true;
         }
@@ -50,10 +53,22 @@ pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
             app.help_active = true;
             app.help_scroll = 0;
         }
-        KeyCode::Char('/') => {
+        // `:` for the command line, `/` for finding things within the current
+        // view — the vim split. `/` used to open the palette.
+        KeyCode::Char(':') => {
             app.command.active = true;
             app.command.input.clear();
             app.command.selected = 0;
+        }
+        KeyCode::Tab | KeyCode::BackTab | KeyCode::Esc if app.art_fullscreen => {
+            app.exit_art_fullscreen();
+        }
+        // Not while the queue has focus: the filter narrows the tab's list, which
+        // is not what the user is looking at. Not in fullscreen art either — the
+        // filter overlay is hidden there, so it would silently swallow Tab/Esc
+        // (which should exit fullscreen) into an invisible filter box.
+        KeyCode::Char('/') if app.filterable_tab() && !app.queue_focused && !app.art_fullscreen => {
+            app.filter_active = true;
         }
         KeyCode::Tab => {
             if leaving_album(app) {
@@ -82,7 +97,14 @@ pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
         KeyCode::Char('n') => app.next_track(),
         KeyCode::Char('p') => app.prev_track(),
         KeyCode::Char('z') => app.toggle_shuffle(),
+        KeyCode::Char('u') => app.undo_last_removal(),
         KeyCode::Esc => {
+            // A filter left applied after the box closed would otherwise have no
+            // quick way out; clearing it takes priority over navigating back.
+            if app.filterable_tab() && !app.active_filter().is_empty() {
+                app.clear_active_filter();
+                return true;
+            }
             if leaving_album(app) {
                 kitty_delete_album_art();
             }
@@ -98,6 +120,9 @@ pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
             let _ = app.player_tx.send(PlayerCmd::ChangeVolume(-5));
         }
         KeyCode::Char('g') => {
+            if app.art_fullscreen {
+                return true;
+            }
             if let Some(track) = get_selected_track(app) {
                 app.go_to_artist_from_track(&track);
             } else {
@@ -131,4 +156,58 @@ pub(super) fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
         _ => return false,
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::Tab;
+    use crate::app::test_support::test_app;
+
+    #[test]
+    fn shift_a_toggles_fullscreen_without_changing_tabs() {
+        let mut t = test_app();
+        t.app.current_tab = Tab::Albums;
+        t.app.queue_focused = true;
+        let key = KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT);
+
+        assert!(handle_global_key(&mut t.app, key));
+        assert!(t.app.art_fullscreen);
+        assert_eq!(t.app.current_tab, Tab::Albums);
+        assert!(t.app.queue_focused);
+
+        assert!(handle_global_key(&mut t.app, key));
+        assert!(!t.app.art_fullscreen);
+        assert_eq!(t.app.current_tab, Tab::Albums);
+        assert!(t.app.queue_focused);
+    }
+
+    #[test]
+    fn tab_leaves_fullscreen_without_advancing_the_hidden_tab() {
+        let mut t = test_app();
+        t.app.current_tab = Tab::Albums;
+        t.app.art_fullscreen = true;
+
+        assert!(handle_global_key(
+            &mut t.app,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        ));
+        assert!(!t.app.art_fullscreen);
+        assert_eq!(t.app.current_tab, Tab::Albums);
+    }
+
+    #[test]
+    fn slash_does_not_open_the_hidden_filter_in_fullscreen_art() {
+        let mut t = test_app();
+        t.app.current_tab = Tab::Albums;
+        t.app.art_fullscreen = true;
+        assert!(t.app.filterable_tab());
+
+        handle_global_key(
+            &mut t.app,
+            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+        );
+
+        assert!(!t.app.filter_active);
+    }
 }

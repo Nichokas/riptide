@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 //! The request/response messages exchanged with the API worker.
 
@@ -41,6 +41,10 @@ pub enum ApiRequest {
         album_id: u64,
     },
     FetchAlbumArt {
+        album_id: u64,
+        cover_id: String,
+    },
+    FetchPresentationArt {
         album_id: u64,
         cover_id: String,
     },
@@ -152,6 +156,10 @@ pub enum ApiResponse {
     AlbumLoaded {
         album: Album,
     },
+    AlbumLoadFailed {
+        album_id: u64,
+        error: String,
+    },
     AlbumTracks {
         album_id: u64,
         tracks: Vec<Track>,
@@ -159,6 +167,15 @@ pub enum ApiResponse {
     AlbumArt {
         album_id: u64,
         image_data: Vec<u8>,
+    },
+    AlbumArtFailed {
+        album_id: u64,
+        error: String,
+    },
+    PresentationArt {
+        album_id: u64,
+        cover_id: String,
+        image_data: Option<Vec<u8>>,
     },
     ArtistArt {
         artist_id: u64,
@@ -190,6 +207,8 @@ pub enum ApiResponse {
     StreamUrl {
         track_id: u64,
         url: String,
+        /// What the server actually served, which a `MAX` badge does not promise.
+        delivered: DeliveredQuality,
     },
     Lyrics {
         track_id: u64,
@@ -208,7 +227,8 @@ pub enum ApiResponse {
     },
     FavAlbumsPage {
         albums: Vec<Album>,
-        total: u32,
+        /// Cursor for the following page; None means the collection is complete.
+        /// These endpoints report no total, so this is the only end signal.
         next_url: Option<String>,
     },
     AlbumFavorited {
@@ -236,6 +256,10 @@ pub enum ApiResponse {
     TrackArt {
         track_id: u64,
         image_data: Vec<u8>,
+    },
+    TrackArtFailed {
+        track_id: u64,
+        error: String,
     },
     Error(String),
 }

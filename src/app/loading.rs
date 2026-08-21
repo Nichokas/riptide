@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 use super::{App, View};
 use crate::api::ApiRequest;
@@ -40,37 +40,22 @@ impl App {
 
     pub fn load_more_playlist_tracks(&mut self) {
         if let Some(View::PlaylistDetail(detail)) = self.view_stack.last_mut() {
-            tracing::debug!(
-                "load_more_playlist_tracks check: loading={}, exhausted={}",
-                detail.tracks.loading,
-                detail.tracks.exhausted
-            );
             if !detail.tracks.loading && !detail.tracks.exhausted {
                 let uuid = detail.playlist.uuid.clone();
                 let next_url = detail.tracks.pagination_cursor.clone();
                 detail.tracks.loading = true;
-                match &next_url {
-                    Some(_) => tracing::debug!("Sending request for next page"),
-                    None => tracing::debug!("Sending request for initial page"),
-                }
                 let _ = self
                     .api_tx
                     .send(ApiRequest::LoadPlaylistTracks { uuid, next_url });
-            } else {
-                if detail.tracks.loading {
-                    tracing::debug!("Skipping load - already loading");
-                }
-                if detail.tracks.exhausted {
-                    tracing::debug!("Skipping load - exhausted");
-                }
             }
-        } else {
-            tracing::debug!("load_more_playlist_tracks: no detail view open");
         }
     }
 
     pub(crate) fn fetch_now_playing_metadata(&mut self) {
         self.fetch_now_playing_art();
+        if self.art_fullscreen {
+            self.fetch_presentation_art();
+        }
         self.fetch_lyrics();
     }
 
@@ -79,12 +64,15 @@ impl App {
             Some(t) => (t.album.id, t.album.cover.clone()),
             None => return,
         };
-        self.now_playing.art_bytes = None;
-        tracing::debug!(
-            "fetch_now_playing_art: album_id={}, cover={:?}",
-            album_id,
-            cover_id
-        );
+        // Consecutive tracks from one album share a cover, and re-fetching it
+        // rebuilds the image protocol — which for the fullscreen canvas means
+        // re-transmitting the whole 640x640 image to the terminal.
+        let source_changed = self.now_playing.set_art_source(cover_id.clone());
+        if !source_changed
+            && (self.now_playing.art_bytes().is_some() || self.now_playing.art_loading)
+        {
+            return;
+        }
         if let Some(cover_id) = cover_id {
             self.now_playing.art_loading = true;
             let _ = self
@@ -92,11 +80,39 @@ impl App {
                 .send(ApiRequest::FetchAlbumArt { album_id, cover_id });
         } else if album_id > 0 {
             // Album cover not available; fetch album to get cover art
-            tracing::debug!("No cover available, fetching album to get cover");
             self.now_playing.art_loading = true;
             let _ = self.api_tx.send(ApiRequest::LoadAlbum { album_id });
         } else {
             self.now_playing.art_loading = false;
+        }
+    }
+
+    pub(crate) fn fetch_presentation_art(&mut self) {
+        if self.now_playing.presentation_art_bytes().is_some()
+            || self.now_playing.presentation_art_loading()
+        {
+            return;
+        }
+
+        let Some(track) = &self.now_playing.track else {
+            return;
+        };
+        let album_id = track.album.id;
+        let cover = self
+            .now_playing
+            .art_source
+            .clone()
+            .or_else(|| track.album.cover.clone());
+
+        if let Some(cover_id) = cover {
+            self.now_playing.art_source = Some(cover_id.clone());
+            self.now_playing.begin_presentation_art_fetch();
+            let _ = self
+                .api_tx
+                .send(ApiRequest::FetchPresentationArt { album_id, cover_id });
+        } else if album_id > 0 && !self.now_playing.art_loading {
+            self.now_playing.begin_presentation_art_discovery();
+            let _ = self.api_tx.send(ApiRequest::LoadAlbum { album_id });
         }
     }
 
@@ -109,5 +125,107 @@ impl App {
         self.now_playing.lyrics_plain = Vec::new();
         self.now_playing.lyrics_loading = true;
         let _ = self.api_tx.send(ApiRequest::FetchLyrics { track_id });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::models::{Album, ArtistRef, Track};
+    use crate::app::test_support::test_app;
+
+    fn track(cover: Option<&str>) -> Track {
+        Track {
+            id: 1,
+            title: "Track".to_string(),
+            duration: 180,
+            artist: Some(ArtistRef {
+                name: "Artist".to_string(),
+            }),
+            artists: Vec::new(),
+            album: Album {
+                id: 2,
+                title: "Album".to_string(),
+                number_of_tracks: None,
+                release_date: None,
+                cover: cover.map(str::to_string),
+                artist: None,
+                media_metadata: None,
+                added_at: None,
+                album_type: None,
+            },
+            media_metadata: None,
+            added_at: None,
+        }
+    }
+
+    #[test]
+    fn a_cover_shared_with_the_previous_track_is_not_refetched() {
+        let mut t = test_app();
+        t.app.art_fullscreen = true;
+        t.app.now_playing.track = Some(track(Some("cover-id")));
+        t.app.fetch_now_playing_metadata();
+        t.app.now_playing.set_art_bytes(Some(vec![1, 2, 3]));
+        t.app
+            .now_playing
+            .set_presentation_art_bytes(Some(vec![4, 5, 6]));
+        t.app.now_playing.art_loading = false;
+        t.app.now_playing.finish_presentation_art_load();
+        t.drain_api();
+
+        let mut next = track(Some("cover-id"));
+        next.id = 7;
+        t.app.now_playing.track = Some(next);
+        t.app.fetch_now_playing_metadata();
+
+        assert_eq!(t.app.now_playing.art_bytes(), Some([1, 2, 3].as_slice()));
+        assert_eq!(
+            t.app.now_playing.presentation_art_bytes(),
+            Some([4, 5, 6].as_slice())
+        );
+        while let Ok(req) = t.api_rx.try_recv() {
+            assert!(
+                !matches!(
+                    req,
+                    ApiRequest::FetchAlbumArt { .. } | ApiRequest::FetchPresentationArt { .. }
+                ),
+                "artwork the previous track already loaded must not be fetched again"
+            );
+        }
+    }
+
+    #[test]
+    fn presentation_art_fetch_is_idempotent_while_loading() {
+        let mut t = test_app();
+        t.drain_api();
+        t.app.now_playing.track = Some(track(Some("cover-id")));
+
+        t.app.fetch_presentation_art();
+        t.app.fetch_presentation_art();
+
+        assert!(t.app.now_playing.presentation_art_loading());
+        assert!(matches!(
+            t.api_rx.try_recv(),
+            Ok(ApiRequest::FetchPresentationArt { album_id: 2, cover_id })
+                if cover_id == "cover-id"
+        ));
+        assert!(t.api_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn missing_cover_loads_album_once_and_keeps_loading_visible() {
+        let mut t = test_app();
+        t.drain_api();
+        t.app.now_playing.track = Some(track(None));
+
+        t.app.fetch_presentation_art();
+        t.app.fetch_presentation_art();
+
+        assert!(t.app.now_playing.presentation_art_loading());
+        assert!(matches!(
+            t.api_rx.try_recv(),
+            Ok(ApiRequest::LoadAlbum { album_id: 2 })
+        ));
+        assert!(t.api_rx.try_recv().is_err());
     }
 }

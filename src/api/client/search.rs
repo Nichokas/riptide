@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 //! Search across tracks, artists and playlists.
 //!
@@ -163,12 +163,10 @@ fn parse_search_track_page(api_resp: &serde_json::Value) -> Result<SearchTrackPa
                         release_date: None,
                         cover: None,
                         artist: None,
-                        audio_quality: None,
                         media_metadata: None,
                         added_at: None,
                         album_type: None,
                     },
-                    audio_quality: None,
                     media_metadata,
                     added_at: None,
                 };

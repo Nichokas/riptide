@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 //! The keybind reference shown in the help modal.
 
@@ -47,8 +47,12 @@ impl KeybindGroup {
                     action: "Quit",
                 },
                 Keybind {
-                    key: "/",
+                    key: ":",
                     action: "Command palette",
+                },
+                Keybind {
+                    key: "/",
+                    action: "Filter list",
                 },
                 Keybind {
                     key: "Tab",
@@ -57,6 +61,10 @@ impl KeybindGroup {
                 Keybind {
                     key: "Shift+Tab",
                     action: "Previous tab",
+                },
+                Keybind {
+                    key: "Shift+A",
+                    action: "Toggle fullscreen art",
                 },
                 Keybind {
                     key: "Space",
@@ -103,11 +111,11 @@ impl KeybindGroup {
             title: "Navigation",
             binds: &[
                 Keybind {
-                    key: "↑",
+                    key: "↑ or k",
                     action: "Up",
                 },
                 Keybind {
-                    key: "↓",
+                    key: "↓ or j",
                     action: "Down",
                 },
                 Keybind {
@@ -124,7 +132,15 @@ impl KeybindGroup {
                 },
                 Keybind {
                     key: "f",
-                    action: "Toggle favorite/follow/save",
+                    action: "Favorite/follow/save",
+                },
+                Keybind {
+                    key: "d",
+                    action: "Remove from library",
+                },
+                Keybind {
+                    key: "u",
+                    action: "Undo the last removal",
                 },
                 Keybind {
                     key: "g",
@@ -147,7 +163,7 @@ impl KeybindGroup {
                     action: "Copy share link (album/playlist)",
                 },
                 Keybind {
-                    key: "→",
+                    key: "→ or l",
                     action: "Focus queue",
                 },
             ],
@@ -159,11 +175,11 @@ impl KeybindGroup {
             title: "Queue",
             binds: &[
                 Keybind {
-                    key: "↑",
+                    key: "↑ or k",
                     action: "Up",
                 },
                 Keybind {
-                    key: "↓",
+                    key: "↓ or j",
                     action: "Down",
                 },
                 Keybind {
@@ -199,11 +215,11 @@ impl KeybindGroup {
             title: "Search",
             binds: &[
                 Keybind {
-                    key: "↑",
+                    key: "↑ or k",
                     action: "Up",
                 },
                 Keybind {
-                    key: "↓",
+                    key: "↓ or j",
                     action: "Down",
                 },
                 Keybind {

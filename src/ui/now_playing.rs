@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 //! The now-playing bar: art, lyrics, track info and the waveform.
 
@@ -67,25 +67,42 @@ pub(super) fn render_now_playing(f: &mut Frame, app: &App, area: Rect) {
     let track_info: Vec<Line> = match &app.now_playing.track {
         Some(t) => {
             let quality_label: Option<String> = {
-                let rate_str = app.now_playing.sample_rate.map(fmt_sample_rate);
+                // mpv reports the rate a moment after playback starts; Tidal states
+                // it up front, so the label is populated immediately either way.
+                let rate_str = app
+                    .now_playing
+                    .sample_rate
+                    .or_else(|| {
+                        app.now_playing
+                            .delivered
+                            .sample_rate
+                            .and_then(|r| u32::try_from(r).ok())
+                    })
+                    .map(fmt_sample_rate);
                 // mpv may return "FLAC (Free Lossless Audio Codec)" — take first word only.
                 let codec_str = app
                     .now_playing
                     .codec
                     .as_deref()
                     .map(|c| c.split_whitespace().next().unwrap_or(c).to_uppercase());
-                match (codec_str, rate_str) {
-                    (Some(c), Some(r)) => Some(format!("{c} · {r}")),
-                    (Some(c), None) => Some(c),
-                    (None, Some(r)) => Some(r),
-                    (None, None) => {
-                        let q = t.quality_display();
-                        if q.is_empty() {
-                            None
-                        } else {
-                            Some(q.to_owned())
-                        }
-                    }
+                // Bit depth comes from Tidal rather than mpv: mpv reports the
+                // decoder's output format (24-bit FLAC decodes to s32), which is not
+                // the depth of the stream. This is the one figure that distinguishes
+                // a MAX release actually served in hi-res from the same release
+                // served as 16-bit lossless.
+                let depth_str = app
+                    .now_playing
+                    .delivered
+                    .bit_depth
+                    .map(|d| format!("{d}-bit"));
+                let parts: Vec<String> = [codec_str, depth_str, rate_str]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                if parts.is_empty() {
+                    None
+                } else {
+                    Some(parts.join(" · "))
                 }
             };
             let heart = if app.favorite_track_ids.contains(&t.id) {
@@ -146,8 +163,15 @@ pub(super) fn render_now_playing_art(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    if let Some(bytes) = &np.art_bytes {
-        render_image(f, bytes, area);
+    if let Some(bytes) = np.art_bytes() {
+        if !render_image(f, bytes, area) {
+            f.render_widget(
+                Paragraph::new("No artwork")
+                    .style(Style::default().fg(DIM))
+                    .alignment(Alignment::Center),
+                area,
+            );
+        }
     } else if np.art_loading {
         f.render_widget(
             Paragraph::new(spinner_char(app.tick).to_string())

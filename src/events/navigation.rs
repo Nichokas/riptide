@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 //! List and view navigation for the main content area.
 
@@ -421,14 +421,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
     // Top-level tab navigation (no active detail view)
     match key.code {
         KeyCode::Up => match app.current_tab {
-            Tab::Home => {
-                use crate::app::HomeSectionFocus;
-                match app.home_section_focus {
-                    HomeSectionFocus::NewReleases => app.home_new_releases.prev(),
-                    HomeSectionFocus::DailyMixes => app.home_daily_mixes.prev(),
-                    HomeSectionFocus::DiscoveryMixes => app.home_discovery_mixes.prev(),
-                }
-            }
+            Tab::Home => app.home_prev(),
             Tab::Artists => app.artists.prev(),
             Tab::Albums => app.fav_albums.prev(),
             Tab::Playlists => app.playlists.prev(),
@@ -436,14 +429,7 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             Tab::Search => app.search.pane_prev(),
         },
         KeyCode::Down => match app.current_tab {
-            Tab::Home => {
-                use crate::app::HomeSectionFocus;
-                match app.home_section_focus {
-                    HomeSectionFocus::NewReleases => app.home_new_releases.next(),
-                    HomeSectionFocus::DailyMixes => app.home_daily_mixes.next(),
-                    HomeSectionFocus::DiscoveryMixes => app.home_discovery_mixes.next(),
-                }
-            }
+            Tab::Home => app.home_next(),
             Tab::Artists => app.artists.next(),
             Tab::Albums => app.fav_albums.next(),
             Tab::Playlists => app.playlists.next(),
@@ -467,30 +453,18 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             Tab::Search => app.search.pane_page_down(),
         },
         KeyCode::Left | KeyCode::Char('h') if app.current_tab == Tab::Home => {
-            use crate::app::HomeSectionFocus;
-            app.home_section_focus = match app.home_section_focus {
-                HomeSectionFocus::NewReleases => HomeSectionFocus::DiscoveryMixes,
-                HomeSectionFocus::DailyMixes => HomeSectionFocus::NewReleases,
-                HomeSectionFocus::DiscoveryMixes => HomeSectionFocus::DailyMixes,
-            };
+            app.home_section_prev();
         }
         KeyCode::Left | KeyCode::Char('h') if app.current_tab == Tab::Search => {
             app.search.prev_pane();
         }
         KeyCode::Right | KeyCode::Char('l') if app.current_tab == Tab::Home => {
-            use crate::app::HomeSectionFocus;
-            app.home_section_focus = match app.home_section_focus {
-                HomeSectionFocus::NewReleases => HomeSectionFocus::DailyMixes,
-                HomeSectionFocus::DailyMixes => HomeSectionFocus::DiscoveryMixes,
-                HomeSectionFocus::DiscoveryMixes => HomeSectionFocus::NewReleases,
-            };
+            app.home_section_next();
         }
         KeyCode::Right | KeyCode::Char('l') if app.current_tab == Tab::Search => {
             app.search.next_pane();
         }
-        KeyCode::Right | KeyCode::Char('l')
-            if app.current_tab != Tab::Search && app.current_tab != Tab::Home =>
-        {
+        KeyCode::Right | KeyCode::Char('l') if app.current_tab != Tab::Search => {
             app.focus_queue();
         }
         KeyCode::Enter => match app.current_tab {
@@ -499,8 +473,13 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             Tab::Albums => app.open_selected_fav_album(),
             Tab::Playlists => app.open_selected_playlist(),
             Tab::Favorites => {
+                // Queue what is on screen: `selected` indexes the visible rows,
+                // so with a filter applied the unfiltered list would play the
+                // wrong track.
                 let idx = app.favorites.selected;
-                let tracks = app.favorites.items.clone();
+                let tracks: Vec<_> = (0..app.favorites.visible_len())
+                    .filter_map(|i| app.favorites.get_visible(i).cloned())
+                    .collect();
                 if !tracks.is_empty() {
                     app.play_tracks(tracks, idx);
                 }
@@ -539,26 +518,16 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             }
             _ => {}
         },
+        // Every row in a library tab is already saved, so `f` there could only ever
+        // remove — a destructive action on a home-row key that people kept firing
+        // by accident (#39). Removal moved to `d`, which already means "remove" in
+        // the queue; `f` now says so rather than silently doing nothing.
         KeyCode::Char('f') => match app.current_tab {
-            Tab::Artists => {
-                if let Some(artist) = app.artists.selected_item().cloned() {
-                    app.toggle_follow_artist(&artist);
-                }
-            }
-            Tab::Playlists => {
-                if let Some(playlist) = app.playlists.selected_item().cloned() {
-                    app.toggle_save_playlist(&playlist);
-                }
-            }
-            Tab::Albums => {
-                if let Some(album) = app.fav_albums.selected_item().cloned() {
-                    app.toggle_favorite_album(&album);
-                }
-            }
-            Tab::Favorites => {
-                if let Some(track) = app.favorites.selected_item().cloned() {
-                    app.toggle_favorite_track(&track);
-                }
+            Tab::Artists | Tab::Albums | Tab::Playlists | Tab::Favorites => {
+                app.set_status(
+                    "Already in your library — press d to remove".to_string(),
+                    crate::app::StatusLevel::Info,
+                );
             }
             Tab::Search if app.search.pane == SearchPane::Tracks => {
                 if let Some(track) = app.search.tracks.get(app.search.track_sel).cloned() {
@@ -573,6 +542,29 @@ pub(super) fn handle_navigation(app: &mut App, key: KeyEvent) {
             Tab::Search if app.search.pane == SearchPane::Playlists => {
                 if let Some(playlist) = app.search.playlists.get(app.search.playlist_sel).cloned() {
                     app.toggle_save_playlist(&playlist);
+                }
+            }
+            _ => {}
+        },
+        KeyCode::Char('d') => match app.current_tab {
+            Tab::Artists => {
+                if let Some(artist) = app.artists.selected_item().cloned() {
+                    app.unfollow_artist(&artist);
+                }
+            }
+            Tab::Playlists => {
+                if let Some(playlist) = app.playlists.selected_item().cloned() {
+                    app.remove_playlist(&playlist);
+                }
+            }
+            Tab::Albums => {
+                if let Some(album) = app.fav_albums.selected_item().cloned() {
+                    app.unfavorite_album(&album);
+                }
+            }
+            Tab::Favorites => {
+                if let Some(track) = app.favorites.selected_item().cloned() {
+                    app.unfavorite_track(&track);
                 }
             }
             _ => {}

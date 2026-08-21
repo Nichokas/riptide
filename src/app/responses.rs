@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2025 Ryan Cohan
+// Copyright (C) 2025 Fezzik the Giant
 
 use super::{App, StatusLevel, View};
 use crate::api::models::*;
@@ -16,23 +16,14 @@ impl App {
                 self.rebuild_favorite_artist_ids();
             }
 
-            ApiResponse::FavAlbumsPage {
-                albums,
-                total,
-                next_url,
-            } => {
+            ApiResponse::FavAlbumsPage { albums, next_url } => {
                 let existing_ids: std::collections::HashSet<u64> =
                     self.fav_albums.items.iter().map(|a| a.id).collect();
                 let unique: Vec<Album> = albums
                     .into_iter()
                     .filter(|a| !existing_ids.contains(&a.id))
                     .collect();
-                self.fav_albums.append(unique, total);
-                let has_next = next_url.is_some();
-                self.fav_albums.pagination_cursor = next_url;
-                if !has_next {
-                    self.fav_albums.exhausted = true;
-                }
+                self.fav_albums.append_page(unique, next_url);
                 self.sort_fav_albums();
                 self.rebuild_favorite_album_ids();
                 if !self.fav_albums.exhausted {
@@ -49,32 +40,41 @@ impl App {
             }
 
             ApiResponse::AlbumUnfavorited { album_id } => {
-                self.fav_albums.items.retain(|a| a.id != album_id);
-                self.fav_albums.total = self.fav_albums.total.saturating_sub(1);
-                self.fav_albums.selected = self
-                    .fav_albums
-                    .selected
-                    .min(self.fav_albums.items.len().saturating_sub(1));
+                self.fav_albums.remove_where(|a| a.id != album_id);
                 self.favorite_album_ids.remove(&album_id);
             }
 
             ApiResponse::PlaylistSaved => {}
 
             ApiResponse::PlaylistRemoved { uuid } => {
-                self.playlists.items.retain(|p| p.uuid != uuid);
-                self.playlists.total = self.playlists.total.saturating_sub(1);
-                self.playlists.selected = self
-                    .playlists
-                    .selected
-                    .min(self.playlists.items.len().saturating_sub(1));
+                self.playlists.remove_where(|p| p.uuid != uuid);
+                self.favorite_playlist_ids.remove(&uuid);
             }
 
             ApiResponse::Playlists(items, total) => {
                 self.playlists.append(items, total);
                 self.sort_playlists();
+                self.rebuild_favorite_playlist_ids();
             }
 
-            ApiResponse::Favorites(items, total) => {
+            ApiResponse::Favorites(items, _total) => {
+                // Tidal can hand back the same track more than once — reported by
+                // users whose library was imported from another service. Showing
+                // both is confusing on its own, and adjacent duplicates used to
+                // send playback into a restart loop. The albums path already
+                // collapses its collection the same way.
+                let received = items.len();
+                let mut seen = std::collections::HashSet::new();
+                let items: Vec<Track> = items.into_iter().filter(|t| seen.insert(t.id)).collect();
+                if items.len() < received {
+                    tracing::warn!(
+                        "Tidal returned {} duplicate favourite track entries ({} unique of {})",
+                        received - items.len(),
+                        items.len(),
+                        received
+                    );
+                }
+                let total = items.len() as u32;
                 self.favorites.append(items, total);
                 self.favorites.exhausted = true;
                 self.sort_favorites();
@@ -179,17 +179,41 @@ impl App {
                 }
 
                 // Also handle when album is loaded for now_playing track (from fetch_now_playing_art)
-                if let Some(track) = &self.now_playing.track {
-                    if track.album.id == album_id {
-                        if let Some(cover_url) = cover {
-                            self.now_playing.art_loading = true;
-                            let _ = self.api_tx.send(ApiRequest::FetchAlbumArt {
-                                album_id,
-                                cover_id: cover_url,
-                            });
+                if self.now_playing.is_current_album(album_id) {
+                    if let Some(cover_url) = cover {
+                        if self.now_playing.presentation_art_discovering_cover() {
+                            self.now_playing.finish_presentation_art_load();
                         }
+                        self.now_playing.set_art_source(Some(cover_url.clone()));
+                        self.now_playing.art_loading = true;
+                        let _ = self.api_tx.send(ApiRequest::FetchAlbumArt {
+                            album_id,
+                            cover_id: cover_url,
+                        });
+                        if self.art_fullscreen {
+                            self.fetch_presentation_art();
+                        }
+                        self.push_mpris_state();
+                    } else if self.now_playing.art_source.is_none() {
+                        self.now_playing.art_loading = false;
+                        self.now_playing.finish_presentation_art_load();
                     }
                 }
+            }
+
+            ApiResponse::AlbumLoadFailed { album_id, error } => {
+                if let Some(View::AlbumDetail(detail)) = self.view_stack.last_mut()
+                    && detail.album.id == album_id
+                {
+                    detail.art_loading = false;
+                }
+                if self.now_playing.is_current_album(album_id) {
+                    self.now_playing.art_loading = false;
+                    if self.now_playing.presentation_art_discovering_cover() {
+                        self.now_playing.finish_presentation_art_load();
+                    }
+                }
+                self.set_status(format!("album: {error}"), StatusLevel::Error);
             }
 
             ApiResponse::AlbumTracks { album_id, tracks } => {
@@ -211,12 +235,9 @@ impl App {
                     album_id,
                     image_data.len()
                 );
-                let is_now_playing =
-                    self.now_playing.track.as_ref().map(|t| t.album.id) == Some(album_id);
-                tracing::debug!("is_now_playing={}", is_now_playing);
+                let is_now_playing = self.now_playing.is_current_album(album_id);
                 if is_now_playing {
-                    tracing::debug!("Setting now_playing.art_bytes");
-                    self.now_playing.art_bytes = Some(image_data.clone());
+                    self.now_playing.set_art_bytes(Some(image_data.clone()));
                     self.now_playing.art_loading = false;
                 }
                 if let Some(View::AlbumDetail(detail)) = self.view_stack.last_mut() {
@@ -224,6 +245,36 @@ impl App {
                         detail.art_bytes = Some(image_data);
                         detail.art_loading = false;
                     }
+                }
+            }
+
+            ApiResponse::AlbumArtFailed { album_id, error } => {
+                if self.now_playing.is_current_album(album_id) {
+                    self.now_playing.art_loading = false;
+                }
+                if let Some(View::AlbumDetail(detail)) = self.view_stack.last_mut()
+                    && detail.album.id == album_id
+                {
+                    detail.art_loading = false;
+                }
+                self.set_status(format!("album art: {error}"), StatusLevel::Error);
+            }
+
+            ApiResponse::PresentationArt {
+                album_id,
+                cover_id,
+                image_data,
+            } => {
+                let is_now_playing = self.now_playing.wants_art_source(&cover_id);
+                tracing::debug!(
+                    album_id,
+                    bytes = image_data.as_ref().map_or(0, Vec::len),
+                    is_now_playing,
+                    "received presentation artwork"
+                );
+                if is_now_playing {
+                    self.now_playing.set_presentation_art_bytes(image_data);
+                    self.now_playing.finish_presentation_art_load();
                 }
             }
 
@@ -242,9 +293,15 @@ impl App {
             ApiResponse::PlaylistArt { uuid, image_data } => {
                 if let Some(View::PlaylistDetail(detail)) = self.view_stack.last_mut() {
                     if detail.playlist.uuid == uuid {
-                        detail.art_bytes = Some(image_data);
+                        detail.art_bytes = Some(image_data.clone());
                         detail.art_loading = false;
                     }
+                }
+                // Every playlist cover comes through here; only the mixes Home
+                // can show are worth keeping, or the cache grows with each
+                // playlist opened.
+                if self.is_home_mix(&uuid) {
+                    self.home_art.store(uuid, image_data);
                 }
             }
 
@@ -292,7 +349,6 @@ impl App {
                             total
                         );
                         if let Some(desc) = description {
-                            tracing::debug!("Setting description: {}", desc);
                             detail.playlist.description = Some(desc);
                         }
                         // Only the initial /playlists/{uuid} request carries the
@@ -303,7 +359,6 @@ impl App {
                             detail.playlist.number_of_tracks = Some(total);
                         }
                         if let Some(cov_url) = cover {
-                            tracing::debug!("Setting cover: {}", cov_url);
                             detail.playlist.cover = Some(cov_url.clone());
                             detail.art_loading = true;
                             let _ = self.api_tx.send(ApiRequest::FetchPlaylistArt {
@@ -335,7 +390,7 @@ impl App {
                 let is_source = self.now_playing.source_playlist_uuid.as_deref() == Some(&uuid);
                 if is_source {
                     let qi = self.now_playing.queue_index;
-                    let old_queue_len = self.now_playing.queue.len();
+                    let old_next_id = self.now_playing.queue.get(qi + 1).map(|t| t.id);
 
                     if self.now_playing.shuffle {
                         self.now_playing.original_queue.extend(tracks.clone());
@@ -376,12 +431,10 @@ impl App {
                         });
                     }
 
-                    if old_queue_len <= qi + 1 {
-                        if let Some(next) = self.now_playing.queue.get(qi + 1) {
-                            let _ = self
-                                .api_tx
-                                .send(ApiRequest::ResolveStreamUrl { track_id: next.id });
-                        }
+                    // A shuffled insert can land directly after the current track, so
+                    // it is not enough to check whether the queue merely grew past it.
+                    if self.now_playing.queue.get(qi + 1).map(|t| t.id) != old_next_id {
+                        self.replace_prefetched_next();
                     }
                 }
             }
@@ -492,9 +545,27 @@ impl App {
                 self.search.playlists_next_url = page.next_url;
             }
 
-            ApiResponse::StreamUrl { track_id, url } => {
+            ApiResponse::StreamUrl {
+                track_id,
+                url,
+                delivered,
+            } => {
                 let idx = self.now_playing.queue_index;
-                if self.now_playing.queue.get(idx).map(|t| t.id) == Some(track_id) {
+                // A queue can hold the same track twice in a row — a duplicated
+                // favourite, or just pressing `a` on what is already playing — and
+                // the response carries only an id, so "this is the current track"
+                // and "this is the prefetch" look identical. Every path that
+                // genuinely wants playback to start clears `active` first, so an id
+                // match while that track is still playing must be the prefetch.
+                // Treating it as the current track re-issues `Play`, which restarts
+                // the song and requests the URL again, looping until Tidal answers
+                // 429.
+                let already_playing = self.now_playing.active
+                    && self.now_playing.track.as_ref().map(|t| t.id) == Some(track_id);
+                if self.now_playing.queue.get(idx).map(|t| t.id) == Some(track_id)
+                    && !already_playing
+                {
+                    self.now_playing.play_pending = None;
                     // Always update the track when we get a successful stream URL for the current track
                     let track_changed =
                         self.now_playing.track.as_ref().map(|t| t.id) != Some(track_id);
@@ -502,27 +573,39 @@ impl App {
 
                     if track_changed {
                         // Clear old art and lyrics so we don't show the previous track's content
-                        tracing::debug!("Clearing old art and lyrics for new track");
-                        self.now_playing.art_bytes = None;
+                        self.now_playing.set_art_bytes(None);
                         self.now_playing.art_loading = true;
                         self.now_playing.lyrics_synced.clear();
                         self.now_playing.lyrics_plain.clear();
                         self.now_playing.lyrics_loading = true;
+                        // Paths that already made this track current — `play_from_queue`,
+                        // removing the playing row — fetched metadata then. Doing it
+                        // again here would wipe presentation art that has already landed.
+                        self.fetch_now_playing_metadata();
                     }
 
-                    // Fetch track details, art, and lyrics now that playback is confirmed
                     let _ = self.api_tx.send(ApiRequest::GetTrackDetails { track_id });
-                    self.fetch_now_playing_metadata();
                     self.push_mpris_state();
 
+                    // `loadfile replace` wipes mpv's playlist and always loads media,
+                    // so anything prefetched into it is gone and mpv is no longer dry.
                     let _ = self.player_tx.send(PlayerCmd::Play(url));
+                    self.now_playing.delivered = delivered;
+                    self.now_playing.next_prefetched = None;
+                    self.now_playing.mpv_exhausted = false;
                     if let Some(next) = self.now_playing.queue.get(idx + 1) {
                         let _ = self
                             .api_tx
                             .send(ApiRequest::ResolveStreamUrl { track_id: next.id });
                     }
-                } else if self.now_playing.queue.get(idx + 1).map(|t| t.id) == Some(track_id) {
-                    let _ = self.player_tx.send(PlayerCmd::Append(url));
+                } else if self.now_playing.queue.get(idx + 1).map(|t| t.id) == Some(track_id)
+                    && !self.now_playing.mpv_exhausted
+                {
+                    // Only queue behind media mpv still has loaded — see the field's
+                    // doc comment. A prefetch dropped here is recovered by the
+                    // divergence check in `TrackEnded`.
+                    let _ = self.player_tx.send(PlayerCmd::SetNext(url));
+                    self.now_playing.next_prefetched = Some(track_id);
                 }
             }
 
@@ -554,13 +637,15 @@ impl App {
                     if let Some(url) = cover_url {
                         if url.ends_with(".jpg") || url.ends_with(".png") || url.ends_with(".jpeg")
                         {
-                            tracing::debug!("TrackDetails has valid image cover_url, fetching");
+                            self.now_playing.set_art_source(Some(url.clone()));
                             self.now_playing.art_loading = true;
-                            self.now_playing.art_bytes = None;
                             let _ = self.api_tx.send(ApiRequest::FetchTrackArt {
                                 track_id,
                                 cover_url: url,
                             });
+                            if self.art_fullscreen {
+                                self.fetch_presentation_art();
+                            }
                         } else {
                             tracing::debug!(
                                 "TrackDetails has non-image cover_url ({}), skipping",
@@ -568,6 +653,10 @@ impl App {
                             );
                         }
                     }
+                    // The replacement track may correct title, album, or art;
+                    // push now instead of letting the next 500 ms position tick
+                    // deliver it.
+                    self.push_mpris_state();
                 }
             }
 
@@ -576,30 +665,27 @@ impl App {
                 image_data,
             } => {
                 if self.now_playing.track.as_ref().map(|t| t.id) == Some(track_id) {
-                    self.now_playing.art_bytes = Some(image_data);
+                    self.now_playing.set_art_bytes(Some(image_data));
                     self.now_playing.art_loading = false;
                 }
+            }
+
+            ApiResponse::TrackArtFailed { track_id, error } => {
+                if self.now_playing.track.as_ref().map(|track| track.id) == Some(track_id) {
+                    self.now_playing.art_loading = false;
+                }
+                self.set_status(format!("track art: {error}"), StatusLevel::Error);
             }
 
             ApiResponse::FavoriteAdded | ApiResponse::ArtistFollowed => {}
 
             ApiResponse::FavoriteRemoved { track_id } => {
-                self.favorites.items.retain(|t| t.id != track_id);
-                self.favorites.total = self.favorites.total.saturating_sub(1);
-                self.favorites.selected = self
-                    .favorites
-                    .selected
-                    .min(self.favorites.items.len().saturating_sub(1));
+                self.favorites.remove_where(|t| t.id != track_id);
                 self.rebuild_favorite_track_ids();
             }
 
             ApiResponse::ArtistUnfollowed { artist_id } => {
-                self.artists.items.retain(|a| a.id != artist_id);
-                self.artists.total = self.artists.total.saturating_sub(1);
-                self.artists.selected = self
-                    .artists
-                    .selected
-                    .min(self.artists.items.len().saturating_sub(1));
+                self.artists.remove_where(|a| a.id != artist_id);
             }
 
             ApiResponse::RadioTracks { tracks } => {
@@ -630,20 +716,26 @@ impl App {
             ApiResponse::NewReleases(items) => {
                 self.home_new_releases.items = items;
                 self.home_new_releases.loading = false;
+                self.sync_home_art();
             }
 
             ApiResponse::DailyMixes(items) => {
                 self.home_daily_mixes.items = items;
                 self.home_daily_mixes.loading = false;
+                self.sync_home_art();
             }
 
             ApiResponse::DiscoveryMixes(items) => {
                 self.home_discovery_mixes.items = items;
                 self.home_discovery_mixes.loading = false;
+                self.sync_home_art();
             }
 
             ApiResponse::Error(msg) => {
                 let display_msg = if msg.contains("no stream URL available for track") {
+                    // The URL a Play was waiting on is never coming; leaving it
+                    // pending would make Play a no-op from then on.
+                    self.now_playing.play_pending = None;
                     // Try to enhance the error message with track name
                     if let Some(track_id_str) = msg.split("track ").last() {
                         if let Ok(track_id) = track_id_str.parse::<u64>() {
@@ -690,31 +782,62 @@ impl App {
                 self.now_playing.duration = 0.0;
                 self.now_playing.active = true;
                 self.now_playing.paused = false;
+                self.now_playing.seek_pending = None;
+                self.now_playing.play_pending = None;
                 self.now_playing.sample_rate = None;
                 self.now_playing.codec = None;
                 self.now_playing.lastfm_sent = false;
                 if let Some(track) = &self.now_playing.track {
+                    tracing::info!(
+                        "playing [{}/{}] {} — {} (track {})",
+                        self.now_playing.queue_index + 1,
+                        self.now_playing.queue.len(),
+                        track.artist_name(),
+                        track.title,
+                        track.id
+                    );
                     let title = format!("{} — {}", track.artist_name(), track.title);
                     let _ = self.player_tx.send(PlayerCmd::SetMediaTitle(title));
                 }
                 self.push_mpris_state();
             }
             PlayerEvent::TrackEnded => {
-                if self.now_playing.queue_index + 1 < self.now_playing.queue.len() {
-                    self.now_playing.queue_index += 1;
-                    self.now_playing.track = self
-                        .now_playing
-                        .queue
-                        .get(self.now_playing.queue_index)
-                        .cloned();
-                    let next_idx = self.now_playing.queue_index + 1;
-                    if let Some(next) = self.now_playing.queue.get(next_idx) {
+                let next_idx = self.now_playing.queue_index + 1;
+                if next_idx < self.now_playing.queue.len() {
+                    // mpv rolls over to whatever it had prefetched, which is only the
+                    // track we are about to display if that is what we appended. When
+                    // it is not, the two sides have diverged — re-resolve the track so
+                    // the StreamUrl handler issues a fresh `Play` and puts them back in
+                    // step, instead of narrating a track that is not being played.
+                    let prefetched = self.now_playing.next_prefetched;
+                    let diverged = prefetched != self.now_playing.queue.get(next_idx).map(|t| t.id);
+
+                    self.now_playing.queue_index = next_idx;
+                    self.now_playing.track = self.now_playing.queue.get(next_idx).cloned();
+                    // mpv rolled onto the entry it had queued; if it had none it has
+                    // now run off the end of its playlist.
+                    self.now_playing.mpv_exhausted = self.now_playing.next_prefetched.is_none();
+                    self.now_playing.next_prefetched = None;
+
+                    if diverged {
+                        tracing::warn!(
+                            "mpv did not advance to queue[{next_idx}] (expected track {:?}, had {:?}); replaying to resync",
+                            self.now_playing.queue.get(next_idx).map(|t| t.id),
+                            prefetched
+                        );
+                        self.now_playing.active = false;
+                        if let Some(current) = self.now_playing.queue.get(next_idx) {
+                            let _ = self.api_tx.send(ApiRequest::ResolveStreamUrl {
+                                track_id: current.id,
+                            });
+                        }
+                    } else if let Some(next) = self.now_playing.queue.get(next_idx + 1) {
                         let _ = self
                             .api_tx
                             .send(ApiRequest::ResolveStreamUrl { track_id: next.id });
                     }
-                    if let Some(current) = self.now_playing.queue.get(self.now_playing.queue_index)
-                    {
+
+                    if let Some(current) = self.now_playing.queue.get(next_idx) {
                         let _ = self.api_tx.send(ApiRequest::GetTrackDetails {
                             track_id: current.id,
                         });
@@ -722,17 +845,38 @@ impl App {
                     self.fetch_now_playing_metadata();
                 } else {
                     self.now_playing.active = false;
-                    self.push_mpris_state();
+                    self.now_playing.next_prefetched = None;
+                    self.now_playing.mpv_exhausted = true;
                 }
                 self.now_playing.position = 0.0;
+                self.push_mpris_state();
             }
             PlayerEvent::Position(p) => {
                 if !self.now_playing.active {
                     return;
                 }
-                // Only accept position updates that move forward (with 10ms tolerance for jitter).
-                // This prevents the audio widget from showing position going backward.
-                if p >= self.now_playing.position - 0.01 {
+                if let Some(pending) = &mut self.now_playing.seek_pending {
+                    let stale = (p - pending.origin_secs).abs() < (p - pending.target_secs).abs();
+                    if stale && pending.polls_remaining > 0 {
+                        pending.polls_remaining -= 1;
+                        return;
+                    }
+                    self.now_playing.seek_pending = None;
+                    if !stale {
+                        self.now_playing.position = p;
+                        self.push_mpris_state();
+                        return;
+                    }
+                }
+                let delta = p - self.now_playing.position;
+                // Sub-poll backward jitter is dropped so the progress bar never
+                // wobbles, but a jump of more than a second either way is a real
+                // seek (e.g. through mpv's IPC socket) and must be taken — and
+                // signalled, which is what the epoch bump does.
+                if delta >= -0.01 || delta < -1.0 {
+                    if delta.abs() > 1.0 {
+                        self.now_playing.position_epoch += 1;
+                    }
                     self.now_playing.position = p;
                     self.push_mpris_state();
                 }
@@ -793,7 +937,201 @@ impl App {
             PlayerEvent::Error(e) => {
                 self.set_status(format!("Player: {e}"), StatusLevel::Error);
             }
-            PlayerEvent::CurrVolume(v) => self.now_playing.volume = v,
+            PlayerEvent::CurrVolume(v) => {
+                if self.now_playing.volume != v {
+                    self.now_playing.volume = v;
+                    self.push_mpris_state();
+                }
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::test_support::test_app;
+
+    fn track(album_id: u64) -> Track {
+        Track {
+            id: 1,
+            title: "Track".to_string(),
+            duration: 180,
+            artist: None,
+            artists: Vec::new(),
+            album: Album {
+                id: album_id,
+                title: "Album".to_string(),
+                number_of_tracks: None,
+                release_date: None,
+                cover: None,
+                artist: None,
+                media_metadata: None,
+                added_at: None,
+                album_type: None,
+            },
+            media_metadata: None,
+            added_at: None,
+        }
+    }
+
+    #[test]
+    fn stale_presentation_art_does_not_replace_the_current_request() {
+        let mut t = test_app();
+        t.app.now_playing.track = Some(track(2));
+        // Favourite tracks all carry album.id == 0, so only the cover tells two
+        // in-flight responses apart.
+        t.app
+            .now_playing
+            .set_art_source(Some("wanted-cover".to_string()));
+        t.app.now_playing.begin_presentation_art_fetch();
+
+        t.app.handle_api_response(ApiResponse::PresentationArt {
+            album_id: 0,
+            cover_id: "previous-cover".to_string(),
+            image_data: Some(vec![9, 9, 9]),
+        });
+
+        assert!(t.app.now_playing.presentation_art_loading());
+        assert!(t.app.now_playing.presentation_art_bytes().is_none());
+
+        t.app.handle_api_response(ApiResponse::PresentationArt {
+            album_id: 0,
+            cover_id: "wanted-cover".to_string(),
+            image_data: Some(vec![1, 2, 3]),
+        });
+        assert!(!t.app.now_playing.presentation_art_loading());
+        assert_eq!(
+            t.app.now_playing.presentation_art_bytes(),
+            Some([1, 2, 3].as_slice())
+        );
+    }
+
+    #[test]
+    fn album_without_a_cover_finishes_art_loading() {
+        let mut t = test_app();
+        t.app.now_playing.track = Some(track(2));
+        t.app.now_playing.art_loading = true;
+        t.app.now_playing.begin_presentation_art_discovery();
+
+        t.app.handle_api_response(ApiResponse::AlbumLoaded {
+            album: track(2).album,
+        });
+
+        assert!(!t.app.now_playing.art_loading);
+        assert!(!t.app.now_playing.presentation_art_loading());
+    }
+
+    #[test]
+    fn unrelated_album_refresh_does_not_cancel_a_known_art_request() {
+        let mut t = test_app();
+        t.app.now_playing.track = Some(track(2));
+        t.app.now_playing.art_source = Some("cover-id".to_string());
+        t.app.now_playing.begin_presentation_art_fetch();
+
+        t.app.handle_api_response(ApiResponse::AlbumLoaded {
+            album: track(2).album,
+        });
+
+        assert!(t.app.now_playing.presentation_art_loading());
+    }
+
+    #[test]
+    fn discovered_cover_starts_the_presentation_fetch() {
+        let mut t = test_app();
+        t.drain_api();
+        t.app.now_playing.track = Some(track(2));
+        t.app.now_playing.begin_presentation_art_discovery();
+        t.app.art_fullscreen = true;
+        let mut album = track(2).album;
+        album.cover = Some("cover-id".to_string());
+
+        t.app
+            .handle_api_response(ApiResponse::AlbumLoaded { album });
+
+        assert!(t.app.now_playing.presentation_art_loading());
+        assert!(matches!(
+            t.api_rx.try_recv(),
+            Ok(ApiRequest::FetchAlbumArt { album_id: 2, cover_id })
+                if cover_id == "cover-id"
+        ));
+        assert!(matches!(
+            t.api_rx.try_recv(),
+            Ok(ApiRequest::FetchPresentationArt { album_id: 2, cover_id })
+                if cover_id == "cover-id"
+        ));
+    }
+
+    #[test]
+    fn album_lookup_failure_finishes_discovery() {
+        let mut t = test_app();
+        t.app.now_playing.track = Some(track(2));
+        t.app.now_playing.art_loading = true;
+        t.app.now_playing.begin_presentation_art_discovery();
+
+        t.app.handle_api_response(ApiResponse::AlbumLoadFailed {
+            album_id: 2,
+            error: "offline".to_string(),
+        });
+
+        assert!(!t.app.now_playing.art_loading);
+        assert!(!t.app.now_playing.presentation_art_loading());
+        assert!(matches!(
+            &t.app.status,
+            Some((message, StatusLevel::Error, _)) if message == "album: offline"
+        ));
+    }
+
+    /// v2 track details can carry artwork the album does not, and the fullscreen
+    /// canvas kept showing the album cover because its cached bytes made
+    /// `fetch_presentation_art` early-return.
+    #[test]
+    fn a_track_level_cover_replaces_the_fullscreen_canvas() {
+        let mut t = test_app();
+        t.app.art_fullscreen = true;
+        t.app.now_playing.track = Some(track(2));
+        t.app
+            .now_playing
+            .set_art_source(Some("album-cover".to_string()));
+        t.app
+            .now_playing
+            .set_presentation_art_bytes(Some(vec![9, 9, 9]));
+        t.drain_api();
+
+        let cover_url = "https://resources.tidal.com/images/a/b/320x320.jpg";
+        t.app.handle_api_response(ApiResponse::TrackDetails {
+            track_id: 1,
+            track: track(2),
+            cover_url: Some(cover_url.to_string()),
+        });
+
+        assert!(t.app.now_playing.presentation_art_bytes().is_none());
+        let mut requested = false;
+        while let Ok(req) = t.api_rx.try_recv() {
+            if matches!(req, ApiRequest::FetchPresentationArt { ref cover_id, .. } if cover_id == cover_url)
+            {
+                requested = true;
+            }
+        }
+        assert!(requested, "the track cover must be fetched for fullscreen");
+    }
+
+    #[test]
+    fn unavailable_presentation_art_finishes_loading() {
+        let mut t = test_app();
+        t.app.now_playing.track = Some(track(2));
+        t.app
+            .now_playing
+            .set_art_source(Some("cover-id".to_string()));
+        t.app.now_playing.begin_presentation_art_fetch();
+
+        t.app.handle_api_response(ApiResponse::PresentationArt {
+            album_id: 2,
+            cover_id: "cover-id".to_string(),
+            image_data: None,
+        });
+
+        assert!(!t.app.now_playing.presentation_art_loading());
+        assert!(t.app.now_playing.presentation_art_bytes().is_none());
     }
 }
