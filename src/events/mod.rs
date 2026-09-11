@@ -33,62 +33,97 @@ use overlays::*;
 use queue::*;
 use search::*;
 
-// Watches for SIGINT, SIGTERM and SIGHUP and reports them through the flag.
-// Closing the terminal window used to kill the process outright, losing the
-// session's preference changes (sorts, volume, queue visibility) because those
-// are only written on a clean exit.
+/// Watches for SIGINT, SIGTERM and SIGHUP and reports them through the flag.
+///
+/// Closing the terminal window used to kill the process outright, losing the
+/// session's preference changes (sorts, volume, queue visibility) because those
+/// are only written on a clean exit.
+///
+/// Unix only, deliberately: the crate does not build elsewhere — the player
+/// talks to mpv over a `UnixStream` on a hardcoded socket path.
 pub fn spawn_signal_watcher(shutdown: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
+    use tokio::signal::unix::{Signal, SignalKind, signal};
+
+    /// `recv` on a handler that failed to register must never complete, or
+    /// `select!` would read the missing signal as having just fired.
+    async fn recv(slot: &mut Option<Signal>) {
+        match slot {
+            Some(s) => {
+                s.recv().await;
+            }
+            None => std::future::pending().await,
+        }
+    }
+
     std::thread::spawn(move || {
-        // A single-signal wait needs no worker pool; current_thread suffices.
-        let rt = tokio::runtime::Builder::new_current_thread()
+        // A signal wait needs no worker pool; current_thread suffices.
+        let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .expect("tokio runtime");
+        {
+            Ok(rt) => rt,
+            // Panicking here would trip the panic hook, which restores the
+            // terminal from under a TUI that is still running and leaves the
+            // user typing into a garbled screen.
+            Err(e) => {
+                tracing::warn!("signal watcher unavailable ({e}); quitting will not be graceful");
+                return;
+            }
+        };
         rt.block_on(async {
-            // The flag must only rise after a real signal.
-            #[cfg(unix)]
-            {
-                use tokio::signal::unix::{SignalKind, signal};
-                // All three must register or none are used: a partial set
-                // leaves tokio's process-wide handler installed with no
-                // receiver alive, silently swallowing that signal.
-                let (mut term, mut hup, mut int) = match (
-                    signal(SignalKind::terminate()),
-                    signal(SignalKind::hangup()),
-                    signal(SignalKind::interrupt()),
-                ) {
-                    (Ok(t), Ok(h), Ok(i)) => (t, h, i),
-                    (_, _, Err(e)) | (Ok(_), Err(e), _) | (Err(e), _, _) => {
-                        tracing::warn!(
-                            "signal handlers unavailable ({e}); quitting without graceful shutdown"
-                        );
-                        return;
-                    }
-                };
-                tokio::select! {
-                    _ = term.recv() => {}
-                    _ = hup.recv() => {}
-                    _ = int.recv() => {}
+            // Registered one at a time and kept even if a sibling fails. Tokio
+            // installs its handler process-wide on the first `signal()` for a
+            // kind and never removes it, so dropping a receiver that did
+            // register is what silently swallows that signal — the partial set
+            // has to stay alive, not be thrown away.
+            let register = |kind: SignalKind, name: &str| match signal(kind) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    tracing::warn!(
+                        "{name} handler unavailable ({e}); it will not shut down cleanly"
+                    );
+                    None
                 }
-                shutdown.store(true, Ordering::Relaxed);
-                // Tokio's handler stays installed for the process's lifetime,
-                // so an unhandled repeat would be swallowed and could no longer
-                // force past a stalled save or worker join.
-                while int.recv().await.is_some() {
-                    tracing::warn!("repeated signal during shutdown; exiting immediately");
-                    std::process::exit(143);
-                }
+            };
+            let mut term = register(SignalKind::terminate(), "SIGTERM");
+            let mut hup = register(SignalKind::hangup(), "SIGHUP");
+            let mut int = register(SignalKind::interrupt(), "SIGINT");
+
+            if term.is_none() && hup.is_none() && int.is_none() {
+                return;
             }
-            #[cfg(not(unix))]
-            match tokio::signal::ctrl_c().await {
-                Ok(()) => shutdown.store(true, Ordering::Relaxed),
-                Err(e) => tracing::warn!(
-                    "ctrl-c handler unavailable ({e}); quitting without graceful shutdown"
-                ),
+
+            tokio::select! {
+                _ = recv(&mut term) => {}
+                _ = recv(&mut hup) => {}
+                _ = recv(&mut int) => {}
             }
+            shutdown.store(true, Ordering::Relaxed);
+
+            // Tokio's handler stays installed for the process's lifetime, so
+            // every kind has to go on being read: a repeat has no default
+            // action left to fall back on, and would be swallowed rather than
+            // forcing past a stalled save or worker join. Watching only SIGINT
+            // left `systemctl stop` waiting out its whole TimeoutStopSec.
+            let signum = tokio::select! {
+                _ = recv(&mut term) => SIGTERM,
+                _ = recv(&mut hup) => SIGHUP,
+                _ = recv(&mut int) => SIGINT,
+            };
+            tracing::warn!("repeated signal during shutdown; exiting immediately");
+            // Preferences are lost, but `save_config` writes through a
+            // temporary file, so the credentials it shares a file with survive
+            // being cut off mid-write.
+            std::process::exit(128 + signum);
         });
     })
 }
+
+/// Signal numbers, for the 128+N exit-code convention. POSIX fixes these three,
+/// so they are not worth a `libc` dependency.
+const SIGHUP: i32 = 1;
+const SIGINT: i32 = 2;
+const SIGTERM: i32 = 15;
 
 pub fn run_app(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
@@ -100,7 +135,23 @@ pub fn run_app(
     signal_shutdown: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     loop {
-        terminal.draw(|f| crate::ui::draw(f, app))?;
+        // Checked before painting: SIGHUP takes the pty with it, so a frame
+        // drawn after the signal fails rather than showing anything.
+        if signal_shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+
+        if let Err(e) = terminal.draw(|f| crate::ui::draw(f, app)) {
+            // The signal can land between that check and this draw, and then
+            // the write fails with EIO. Closing a terminal window is an
+            // ordinary way to quit, not a failure to report — reporting it
+            // exits non-zero, which makes a `Restart=on-failure` unit respawn
+            // a TUI that has no terminal to draw on.
+            if signal_shutdown.load(Ordering::Relaxed) {
+                break;
+            }
+            return Err(e.into());
+        }
 
         // Drain API responses
         while let Ok(resp) = api_rx.try_recv() {
@@ -135,10 +186,6 @@ pub fn run_app(
         }
 
         app.tick();
-
-        if signal_shutdown.load(Ordering::Relaxed) {
-            app.should_quit = true;
-        }
 
         if app.should_quit {
             break;

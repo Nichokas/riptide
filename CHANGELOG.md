@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Fullscreen album-art mode with `Shift+A`, on-demand high-resolution covers, and a compact playback HUD
 
+### Fixed
+- Closing the terminal window, or stopping Riptide with `systemctl stop` or a Ctrl+C from another shell, lost the session's preference changes — sorts, volume, queue visibility. Those are only written on the way out, and a signal skipped that path entirely. A second signal still forces an immediate exit, and the config is now written through a temporary file, so being cut off mid-write can no longer cost you the saved login
+
 ## [1.3.0] - 2026-08-19
 
 ### Added
